@@ -130,17 +130,23 @@ func (db *DB) IsActuatorAssignedToAgent(agentID, actuatorID string) (bool, error
 	return count > 0, nil
 }
 
-// ResolveActuatorForAgent finds the best actuator for an agent:
-// 1. Selected actuator (if set and assigned)
-// 2. First enabled assignment
+// ResolveActuatorForAgent finds the actuator for an agent using the selection chain:
+// 1. Persisted selection (selected_actuator_id) — use if valid, null if not. No fallthrough.
+// 2. Implicit auto-selection — ONLY when selected_actuator_id is NULL:
+//    count non-brain actuators assigned; if exactly 1, auto-persist and return it.
+// 3. Null — agent must explicitly select via POST /v1/actuator/select.
+//
+// Brain-type actuators are NEVER candidates for auto-selection.
+// This is the single function for actuator selection (DRY policy).
 func (db *DB) ResolveActuatorForAgent(agentID string) (*Actuator, error) {
-	// Check selected_actuator_id first
+	// Step 1: Check persisted selection
 	var selectedID sql.NullString
 	err := db.QueryRow(`SELECT selected_actuator_id FROM agents WHERE id = ?`, agentID).Scan(&selectedID)
 	if err != nil {
 		return nil, err
 	}
 	if selectedID.Valid {
+		// Validate it's still assigned and enabled
 		assigned, err := db.IsActuatorAssignedToAgent(agentID, selectedID.String)
 		if err != nil {
 			return nil, err
@@ -148,25 +154,42 @@ func (db *DB) ResolveActuatorForAgent(agentID string) (*Actuator, error) {
 		if assigned {
 			return db.GetActuatorByID(selectedID.String)
 		}
+		// Invalid selection — return null, no fallthrough
+		return nil, nil
 	}
 
-	// Fall back to first enabled assignment
-	a := &Actuator{}
-	err = db.QueryRow(`
+	// Step 2: Implicit auto-selection (only when selected_actuator_id is NULL)
+	// Count non-brain actuators assigned to this agent
+	rows, err := db.Query(`
 		SELECT act.id, act.account_id, act.name, act.type, act.status, act.token_hash,
 		       act.encrypted_token, act.enabled, act.last_seen_at, act.created_at
 		FROM actuators act
 		JOIN agent_actuator_assignments aaa ON act.id = aaa.actuator_id
-		WHERE aaa.agent_id = ? AND aaa.enabled = 1 AND act.enabled = 1
-		ORDER BY act.created_at LIMIT 1
-	`, agentID).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+		WHERE aaa.agent_id = ? AND aaa.enabled = 1 AND act.enabled = 1 AND act.type != 'brain'
+		ORDER BY act.created_at
+	`, agentID)
 	if err != nil {
 		return nil, err
 	}
-	return a, nil
+	defer rows.Close()
+
+	var candidates []*Actuator
+	for rows.Next() {
+		a := &Actuator{}
+		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, a)
+	}
+
+	if len(candidates) == 1 {
+		// Exactly one non-brain actuator — auto-persist and return
+		db.SelectActuator(agentID, &candidates[0].ID)
+		return candidates[0], nil
+	}
+
+	// Step 3: Null — agent must explicitly select
+	return nil, nil
 }
 
 // UpdateActuatorStatus sets the status and last_seen_at for an actuator.
