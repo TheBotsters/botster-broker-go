@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Botster Broker (Go)</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --orange: #d29922;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+    h1 { color: var(--accent); margin-bottom: 8px; font-size: 24px; }
+    h2 { color: var(--text); margin: 24px 0 12px; font-size: 18px; }
+    .subtitle { color: var(--text-muted); margin-bottom: 24px; font-size: 14px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-online { background: var(--green); color: #000; }
+    .badge-offline { background: var(--text-muted); color: #000; }
+    .badge-safe { background: var(--red); color: #fff; }
+    .badge-live { background: var(--green); color: #000; }
+    .badge-brain { background: var(--accent); color: #000; }
+    .badge-vps { background: var(--orange); color: #000; }
+
+    .btn {
+      padding: 6px 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn-danger { border-color: var(--red); color: var(--red); }
+    .btn-danger:hover { background: var(--red); color: #fff; }
+    .btn-safe { border-color: var(--green); color: var(--green); }
+    .btn-safe:hover { background: var(--green); color: #000; }
+
+    .safe-banner {
+      background: var(--red);
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-weight: 600;
+      display: none;
+      text-align: center;
+    }
+    .safe-banner.active { display: block; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+    .stat { text-align: center; padding: 16px; }
+    .stat-value { font-size: 32px; font-weight: 700; color: var(--accent); }
+    .stat-label { font-size: 13px; color: var(--text-muted); }
+
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .list-item:last-child { border-bottom: none; }
+    .item-name { font-weight: 600; }
+    .item-meta { color: var(--text-muted); font-size: 13px; }
+
+    #status { color: var(--text-muted); font-size: 13px; margin-top: 24px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🤖 Botster Broker <span style="color: var(--text-muted); font-weight: 400;">(Go)</span></h1>
+    <div class="subtitle">Clean-room reimplementation — built by Síofra on the VPS actuator</div>
+
+    <div id="safe-banner" class="safe-banner">
+      ⚠️ SAFE MODE ACTIVE — All actuator commands are blocked
+    </div>
+
+    <div class="grid">
+      <div class="card stat">
+        <div class="stat-value" id="agent-count">-</div>
+        <div class="stat-label">Agents</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-value" id="actuator-count">-</div>
+        <div class="stat-label">Actuators</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 style="margin:0">Global Safe Mode</h2>
+        <button id="safe-toggle" class="btn btn-danger" onclick="toggleGlobalSafe()">Toggle</button>
+      </div>
+    </div>
+
+    <h2>Agents</h2>
+    <div class="card" id="agents-list">Loading...</div>
+
+    <h2>Actuators</h2>
+    <div class="card" id="actuators-list">Loading...</div>
+
+    <div id="status">Loading...</div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
