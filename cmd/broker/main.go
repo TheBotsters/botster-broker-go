@@ -13,6 +13,7 @@ import (
 	"github.com/siofra-seksbot/botster-broker-go/internal/api"
 	"github.com/siofra-seksbot/botster-broker-go/internal/config"
 	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
 )
 
 func main() {
@@ -35,14 +36,23 @@ func main() {
 	version, _ := database.SchemaVersion()
 	log.Printf("Schema version: %d", version)
 
+	// Create WebSocket hub
+	wsHub := hub.New(database, cfg.MasterKey)
+	go wsHub.Run()
+	log.Println("WebSocket hub started")
+
 	// Create API server
 	srv := &api.Server{
 		DB:        database,
 		MasterKey: cfg.MasterKey,
+		Hub:       wsHub,
 	}
 
 	// Build router
 	router := srv.NewRouter()
+
+	// WebSocket endpoint
+	router.HandleFunc("/ws", wsHub.HandleWebSocket)
 
 	// Serve static files from web/ if it exists
 	webDir := "web"

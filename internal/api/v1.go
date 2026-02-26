@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
 )
 
 // Server holds dependencies for API handlers.
 type Server struct {
+	Hub *hub.Hub
 	DB        *db.DB
 	MasterKey string
 }
@@ -32,6 +35,7 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/actuators", s.handleActuatorsList)
 		r.Post("/actuator/select", s.handleActuatorSelect)
 		r.Get("/actuator/selected", s.handleActuatorSelected)
+		r.Post("/command", s.handleCommand)
 		r.Post("/agents/{id}/safe", s.handleAgentSafeToggle)
 		r.Post("/dashboard/safe", s.handleGlobalSafeToggle)
 	})
@@ -352,5 +356,81 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		"id":    newAgent.ID,
 		"name":  newAgent.Name,
 		"token": token,
+	})
+}
+
+func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
+	agent := s.authenticateAgent(w, r)
+	if agent == nil {
+		return
+	}
+
+	var body struct {
+		Capability string          `json:"capability"`
+		ActuatorID string          `json:"actuator_id,omitempty"`
+		Payload    json.RawMessage `json:"payload"`
+		Sync       *bool           `json:"sync,omitempty"`
+		TimeoutMs  int             `json:"timeout_ms,omitempty"`
+		TTL        int             `json:"ttl_seconds,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, 400, "Invalid request body")
+		return
+	}
+	if body.Capability == "" || body.Payload == nil {
+		jsonError(w, 400, "capability and payload required")
+		return
+	}
+
+	commandID := fmt.Sprintf("rest_%d", time.Now().UnixMilli())
+
+	msg := hub.WSMessage{
+		Type:       hub.TypeCommandRequest,
+		ID:         commandID,
+		Capability: body.Capability,
+		ActuatorID: body.ActuatorID,
+		Payload:    body.Payload,
+		TTL:        body.TTL,
+	}
+
+	// Default to sync mode
+	sync := true
+	if body.Sync != nil {
+		sync = *body.Sync
+	}
+
+	if sync {
+		timeout := 30 * time.Second
+		if body.TimeoutMs > 0 && body.TimeoutMs <= 60000 {
+			timeout = time.Duration(body.TimeoutMs) * time.Millisecond
+		}
+
+		result, err := s.Hub.SendCommand(agent.ID, agent.AccountID, msg, timeout)
+		if err != nil {
+			jsonError(w, 500, "Command dispatch failed")
+			return
+		}
+		if result == nil {
+			jsonResponse(w, 202, map[string]interface{}{
+				"status":     "timeout",
+				"command_id": commandID,
+				"message":    "Command sent but result not received within timeout",
+			})
+			return
+		}
+		jsonResponse(w, 200, map[string]interface{}{
+			"status":     result.Status,
+			"command_id": commandID,
+			"result":     result.Result,
+		})
+		return
+	}
+
+	// Async — fire and forget through hub
+	s.Hub.SendCommand(agent.ID, agent.AccountID, msg, 0)
+	jsonResponse(w, 200, map[string]interface{}{
+		"status":     "sent",
+		"command_id": commandID,
+		"message":    "Command routed. Results delivered via WS to brain.",
 	})
 }
