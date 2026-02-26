@@ -1,73 +1,79 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Botster Broker (Go)</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e1e4e8; padding: 20px; }
-        h1 { color: #58a6ff; margin-bottom: 4px; font-size: 1.4em; }
-        .subtitle { color: #8b949e; font-size: 0.85em; margin-bottom: 24px; }
-        .section { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-        .section h2 { color: #c9d1d9; font-size: 1.1em; margin-bottom: 12px; }
-        .safe-banner { background: #f8514926; border: 1px solid #f85149; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: none; }
-        .safe-banner.active { display: block; }
-        .safe-banner span { color: #f85149; font-weight: 600; }
-        .btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85em; }
-        .btn:hover { background: #30363d; }
-        .btn-danger { border-color: #f85149; color: #f85149; }
-        .btn-danger:hover { background: #f8514926; }
-        .btn-safe { border-color: #3fb950; color: #3fb950; }
-        .btn-safe:hover { background: #3fb95026; }
-        table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; color: #8b949e; font-weight: 500; font-size: 0.8em; padding: 8px 4px; border-bottom: 1px solid #21262d; }
-        td { padding: 8px 4px; font-size: 0.9em; border-bottom: 1px solid #21262d; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 500; }
-        .badge-online { background: #3fb95026; color: #3fb950; }
-        .badge-offline { background: #8b949e26; color: #8b949e; }
-        .badge-safe { background: #f8514926; color: #f85149; }
-        .badge-live { background: #3fb95026; color: #3fb950; }
-        #status { color: #8b949e; font-size: 0.8em; margin-top: 16px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Botster Broker (Go)</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 20px; }
+    h1 { color: #4ade80; margin-bottom: 8px; font-size: 1.4em; }
+    .subtitle { color: #666; margin-bottom: 24px; font-size: 0.9em; }
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .card h2 { color: #4ade80; font-size: 1.1em; margin-bottom: 12px; }
+    .safe-banner { background: #7f1d1d; border-color: #dc2626; text-align: center; padding: 12px; font-weight: bold; color: #fca5a5; display: none; }
+    .safe-banner.active { display: block; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+    .badge-online { background: #166534; color: #4ade80; }
+    .badge-offline { background: #44403c; color: #a8a29e; }
+    .badge-brain { background: #1e3a5f; color: #60a5fa; }
+    .badge-vps { background: #3f3f46; color: #a1a1aa; }
+    .badge-safe { background: #7f1d1d; color: #fca5a5; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #2a2a2a; }
+    th { color: #888; font-size: 0.85em; text-transform: uppercase; }
+    button { background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 0.85em; }
+    button:hover { background: #444; }
+    button.danger { border-color: #dc2626; color: #fca5a5; }
+    button.danger:hover { background: #7f1d1d; }
+    .stats { display: flex; gap: 24px; flex-wrap: wrap; }
+    .stat { text-align: center; }
+    .stat-value { font-size: 2em; font-weight: bold; color: #4ade80; }
+    .stat-label { font-size: 0.8em; color: #888; }
+    #log { font-family: monospace; font-size: 0.8em; max-height: 300px; overflow-y: auto; background: #111; padding: 8px; border-radius: 4px; }
+    .log-entry { padding: 2px 0; border-bottom: 1px solid #1a1a1a; }
+  </style>
 </head>
 <body>
-    <h1>🤖 Botster Broker <span style="color:#8b949e;font-weight:300">(Go)</span></h1>
-    <p class="subtitle">Clean-room reimplementation — built by Síofra on the actuator 🌿</p>
+  <h1>🌿 Botster Broker <span style="color:#666">(Go)</span></h1>
+  <p class="subtitle">Clean-room reimplementation — built by Síofra on the actuator</p>
 
-    <div id="safe-banner" class="safe-banner">
-        ⚠️ <span>SAFE MODE ACTIVE</span> — All actuator commands are blocked
-        <button class="btn btn-safe" onclick="toggleGlobalSafe()" style="float:right">Disable</button>
+  <div id="safe-banner" class="card safe-banner">
+    ⚠️ SAFE MODE ACTIVE — All actuator commands blocked
+    <button onclick="toggleGlobalSafe()" style="margin-left:12px">Disable</button>
+  </div>
+
+  <div class="card">
+    <h2>Overview</h2>
+    <div class="stats" id="stats">
+      <div class="stat"><div class="stat-value" id="stat-agents">-</div><div class="stat-label">Agents</div></div>
+      <div class="stat"><div class="stat-value" id="stat-actuators">-</div><div class="stat-label">Actuators</div></div>
+      <div class="stat"><div class="stat-value" id="stat-secrets">-</div><div class="stat-label">Secrets</div></div>
+      <div class="stat"><div class="stat-value" id="stat-schema">-</div><div class="stat-label">Schema v</div></div>
     </div>
+  </div>
 
-    <div class="section">
-        <h2>Agents</h2>
-        <table>
-            <thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody id="agents-body"></tbody>
-        </table>
-    </div>
+  <div class="card">
+    <h2>Agents</h2>
+    <table>
+      <thead><tr><th>Name</th><th>ID</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody id="agents-table"></tbody>
+    </table>
+  </div>
 
-    <div class="section">
-        <h2>Actuators</h2>
-        <table>
-            <thead><tr><th>Name</th><th>Type</th><th>Status</th></tr></thead>
-            <tbody id="actuators-body"></tbody>
-        </table>
-    </div>
+  <div class="card">
+    <h2>Actuators</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Last Seen</th></tr></thead>
+      <tbody id="actuators-table"></tbody>
+    </table>
+  </div>
 
-    <div class="section">
-        <h2>Secrets</h2>
-        <p id="secrets-count" style="color:#8b949e">Loading...</p>
-    </div>
+  <div class="card">
+    <h2>Controls</h2>
+    <button onclick="toggleGlobalSafe()">Toggle Global Safe Mode</button>
+  </div>
 
-    <div class="section">
-        <h2>Controls</h2>
-        <button class="btn btn-danger" onclick="toggleGlobalSafe()">Toggle Global Safe Mode</button>
-    </div>
-
-    <p id="status">Connecting...</p>
-
-    <script type="module" src="/main.js"></script>
+  <script src="main.js"></script>
 </body>
 </html>

@@ -1,118 +1,96 @@
-// Botster Broker Dashboard — Plain JS, no build step, pure functions.
-// Source is what runs. Like Self intended.
+// Botster Broker Dashboard — pure JS, no build step, no framework
+// Pure functions. Source is what runs.
 
-/** @typedef {{ id: string, name: string, safe: boolean }} Agent */
-/** @typedef {{ id: string, name: string, type: string, status: string, enabled: boolean }} Actuator */
+/** @param {string} id @returns {HTMLElement} */
+const $ = (id) => document.getElementById(id);
 
-// --- API Layer (with runtime validation) ---
-
-async function fetchJSON(url, options = {}) {
+/** @param {string} url @param {Object} [opts] @returns {Promise<any>} */
+async function api(url, opts = {}) {
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    ...opts,
   });
   return res.json();
 }
 
-async function getHealth() {
-  return fetchJSON('/health');
+/** @param {string} text @returns {string} */
+function timeAgo(text) {
+  if (!text) return '—';
+  const diff = Date.now() - new Date(text).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
 }
 
-async function getActuators() {
-  const data = await fetchJSON('/v1/actuators');
-  if (!Array.isArray(data)) throw new Error('Expected array of actuators');
-  return data;
+/** @param {string} status @returns {string} */
+function statusBadge(status) {
+  const cls = status === 'online' ? 'badge-online' : 'badge-offline';
+  return `<span class="badge ${cls}">${status}</span>`;
 }
 
-async function getAgents() {
-  // Agents endpoint requires auth — we'll read from a public-ish endpoint
-  // For now, parse from actuators + a direct DB query proxy
-  // TODO: add a public agents list endpoint
-  return [];
+/** @param {string} type @returns {string} */
+function typeBadge(type) {
+  const cls = type === 'brain' ? 'badge-brain' : 'badge-vps';
+  return `<span class="badge ${cls}">${type}</span>`;
+}
+
+// --- Refresh functions (pure: data in, DOM out) ---
+
+async function refreshStats() {
+  const health = await api('/health');
+  $('stat-schema').textContent = health.schema_version;
+
+  const actuators = await api('/v1/actuators');
+  $('stat-actuators').textContent = actuators.length;
+}
+
+async function refreshAgents() {
+  // We don't have a public agents list endpoint without auth.
+  // For the dashboard, we'll show what we get from actuators context.
+  // TODO: add session-based dashboard auth
+  $('stat-agents').textContent = '—';
+}
+
+async function refreshActuators() {
+  const actuators = await api('/v1/actuators');
+  const tbody = $('actuators-table');
+  tbody.innerHTML = actuators.map((a) => `
+    <tr>
+      <td><strong>${a.name}</strong></td>
+      <td>${typeBadge(a.type)}</td>
+      <td>${statusBadge(a.status)}</td>
+      <td>${timeAgo(a.last_seen_at)}</td>
+    </tr>
+  `).join('');
+}
+
+async function checkSafeMode() {
+  // No direct endpoint yet — try toggling logic from banner state
+  // For now, we'll just hide the banner. TODO: GET /v1/dashboard/safe
+  $('safe-banner').classList.remove('active');
 }
 
 async function toggleGlobalSafe() {
-  const data = await fetchJSON('/v1/dashboard/safe', { method: 'POST' });
-  refresh();
-  return data;
-}
-
-async function toggleAgentSafe(agentId) {
-  const data = await fetchJSON(`/v1/agents/${agentId}/safe`, { method: 'POST' });
-  refresh();
-  return data;
-}
-
-// --- Render Functions (pure — take data, return nothing, mutate DOM) ---
-
-function renderActuators(actuators) {
-  const tbody = document.getElementById('actuators-body');
-  tbody.innerHTML = actuators.map(a => `
-    <tr>
-      <td>${escapeHtml(a.name)}</td>
-      <td>${escapeHtml(a.type)}</td>
-      <td><span class="badge badge-${a.status === 'online' ? 'online' : 'offline'}">${a.status}</span></td>
-    </tr>
-  `).join('');
-}
-
-function renderAgents(agents) {
-  const tbody = document.getElementById('agents-body');
-  if (agents.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="3" style="color:#8b949e">Auth required to list agents</td></tr>';
-    return;
+  const result = await api('/v1/dashboard/safe', { method: 'POST' });
+  if (result.global_safe) {
+    $('safe-banner').classList.add('active');
+  } else {
+    $('safe-banner').classList.remove('active');
   }
-  tbody.innerHTML = agents.map(a => `
-    <tr>
-      <td>${escapeHtml(a.name)}</td>
-      <td><span class="badge ${a.safe ? 'badge-safe' : 'badge-live'}">${a.safe ? 'SAFE' : 'LIVE'}</span></td>
-      <td><button class="btn ${a.safe ? 'btn-safe' : 'btn-danger'}" onclick="toggleAgentSafe('${a.id}')">${a.safe ? 'Enable' : 'Disable'}</button></td>
-    </tr>
-  `).join('');
 }
 
-function renderSafeBanner(globalSafe) {
-  const banner = document.getElementById('safe-banner');
-  banner.classList.toggle('active', globalSafe);
-}
-
-function renderSecretsCount(count) {
-  document.getElementById('secrets-count').textContent = `${count} secrets stored (encrypted at rest)`;
-}
-
-function renderStatus(msg) {
-  document.getElementById('status').textContent = msg;
-}
-
-// --- Helpers ---
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-// --- Main ---
+// --- Init ---
 
 async function refresh() {
   try {
-    const [health, actuators] = await Promise.all([
-      getHealth(),
-      getActuators(),
-    ]);
-
-    renderActuators(actuators);
-    renderAgents([]); // TODO: needs auth
-    renderStatus(`Connected — schema v${health.schema_version} — ${actuators.length} actuators — ${new Date().toLocaleTimeString()}`);
-  } catch (err) {
-    renderStatus(`Error: ${err.message}`);
+    await Promise.all([refreshStats(), refreshActuators(), checkSafeMode()]);
+  } catch (e) {
+    console.error('Refresh failed:', e);
   }
 }
 
-// Make toggle functions available globally
-window.toggleGlobalSafe = toggleGlobalSafe;
-window.toggleAgentSafe = toggleAgentSafe;
-
-// Initial load + auto-refresh
 refresh();
-setInterval(refresh, 10000);
+setInterval(refresh, 10000); // Refresh every 10s
