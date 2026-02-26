@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -23,7 +24,30 @@ type Secret struct {
 	UpdatedAt      string
 }
 
+// decodeCiphertext tries hex first, then base64.
+// The TypeScript broker uses base64; Go broker uses hex for new secrets.
+func decodeCiphertext(encoded string) ([]byte, error) {
+	// Try hex first
+	if data, err := hex.DecodeString(encoded); err == nil {
+		return data, nil
+	}
+	// Try base64
+	if data, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+		return data, nil
+	}
+	// Try base64 URL-safe variant
+	if data, err := base64.URLEncoding.DecodeString(encoded); err == nil {
+		return data, nil
+	}
+	// Try base64 raw (no padding)
+	if data, err := base64.RawStdEncoding.DecodeString(encoded); err == nil {
+		return data, nil
+	}
+	return nil, fmt.Errorf("cannot decode ciphertext: not hex or base64")
+}
+
 // encrypt encrypts plaintext using AES-256-GCM with the given hex key.
+// Output is hex-encoded (Go broker convention).
 func encrypt(plaintext []byte, hexKey string) (string, error) {
 	key, err := hex.DecodeString(hexKey)
 	if err != nil {
@@ -52,16 +76,16 @@ func encrypt(plaintext []byte, hexKey string) (string, error) {
 	return hex.EncodeToString(ciphertext), nil
 }
 
-// decrypt decrypts a hex-encoded AES-256-GCM ciphertext.
-func decrypt(hexCiphertext, hexKey string) ([]byte, error) {
+// decrypt decrypts an AES-256-GCM ciphertext (hex or base64 encoded).
+func decrypt(encodedCiphertext, hexKey string) ([]byte, error) {
 	key, err := hex.DecodeString(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("decode key: %w", err)
 	}
 
-	ciphertext, err := hex.DecodeString(hexCiphertext)
+	ciphertext, err := decodeCiphertext(encodedCiphertext)
 	if err != nil {
-		return nil, fmt.Errorf("decode ciphertext: %w", err)
+		return nil, err
 	}
 
 	block, err := aes.NewCipher(key)
