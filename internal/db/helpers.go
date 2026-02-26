@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// generateID creates a new random UUID v4.
+// generateID creates a UUID v4.
 func generateID() string {
 	b := make([]byte, 16)
 	rand.Read(b)

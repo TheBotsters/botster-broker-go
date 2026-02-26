@@ -2,7 +2,10 @@ module github.com/siofra-seksbot/botster-broker-go
 
 go 1.24.0
 
-require github.com/ncruces/go-sqlite3 v0.30.5
+require (
+	github.com/ncruces/go-sqlite3 v0.30.5
+	golang.org/x/crypto v0.47.0
+)
 
 require (
 	github.com/ncruces/julianday v1.0.0 // indirect

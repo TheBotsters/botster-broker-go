@@ -8,7 +8,7 @@ import (
 	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
 )
 
-// Actuator represents a registered actuator endpoint.
+// Actuator represents an execution endpoint.
 type Actuator struct {
 	ID             string
 	AccountID      string
@@ -22,8 +22,8 @@ type Actuator struct {
 	CreatedAt      string
 }
 
-// CreateActuator registers a new actuator and returns it with its plaintext token.
-func (db *DB) CreateActuator(accountID, name, actType string) (*Actuator, string, error) {
+// CreateActuator creates a new actuator and returns it along with the plaintext token.
+func (db *DB) CreateActuator(accountID, name, actuatorType string) (*Actuator, string, error) {
 	id := generateID()
 	token, err := auth.GenerateToken("seks_actuator")
 	if err != nil {
@@ -31,90 +31,93 @@ func (db *DB) CreateActuator(accountID, name, actType string) (*Actuator, string
 	}
 	tokenHash := auth.HashToken(token)
 
-	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.Exec(`
 		INSERT INTO actuators (id, account_id, name, type, token_hash, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, id, accountID, name, actType, tokenHash, now)
+	`, id, accountID, name, actuatorType, tokenHash, time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		return nil, "", fmt.Errorf("insert actuator: %w", err)
 	}
 
-	act := &Actuator{
-		ID:        id,
-		AccountID: accountID,
-		Name:      name,
-		Type:      actType,
-		Status:    "offline",
-		TokenHash: sql.NullString{String: tokenHash, Valid: true},
-		Enabled:   true,
-		CreatedAt: now,
+	act, err := db.GetActuatorByID(id)
+	if err != nil {
+		return nil, "", err
 	}
 	return act, token, nil
 }
 
-// GetActuatorByToken looks up an actuator by its plaintext token.
+// GetActuatorByID returns an actuator by ID.
+func (db *DB) GetActuatorByID(id string) (*Actuator, error) {
+	a := &Actuator{}
+	err := db.QueryRow(`
+		SELECT id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at
+		FROM actuators WHERE id = ?
+	`, id).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query actuator: %w", err)
+	}
+	return a, nil
+}
+
+// GetActuatorByToken looks up an actuator by plaintext token.
 func (db *DB) GetActuatorByToken(token string) (*Actuator, error) {
 	hash := auth.HashToken(token)
 	a := &Actuator{}
-	var enabled int
 	err := db.QueryRow(`
 		SELECT id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at
 		FROM actuators WHERE token_hash = ?
-	`, hash).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &enabled, &a.LastSeenAt, &a.CreatedAt)
+	`, hash).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query actuator by token: %w", err)
 	}
-	a.Enabled = enabled != 0
 	return a, nil
 }
 
-// GetActuatorByID retrieves an actuator by its ID.
-func (db *DB) GetActuatorByID(id string) (*Actuator, error) {
-	a := &Actuator{}
-	var enabled int
-	err := db.QueryRow(`
-		SELECT id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at
-		FROM actuators WHERE id = ?
-	`, id).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &enabled, &a.LastSeenAt, &a.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("query actuator by id: %w", err)
-	}
-	a.Enabled = enabled != 0
-	return a, nil
-}
-
-// ListActuators returns all actuators for an account.
-func (db *DB) ListActuators(accountID string) ([]Actuator, error) {
+// ListActuatorsByAccount returns all actuators for an account.
+func (db *DB) ListActuatorsByAccount(accountID string) ([]*Actuator, error) {
 	rows, err := db.Query(`
 		SELECT id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at
-		FROM actuators WHERE account_id = ? ORDER BY name
+		FROM actuators WHERE account_id = ? ORDER BY created_at
 	`, accountID)
 	if err != nil {
-		return nil, fmt.Errorf("list actuators: %w", err)
+		return nil, fmt.Errorf("query actuators: %w", err)
 	}
 	defer rows.Close()
 
-	var actuators []Actuator
+	var actuators []*Actuator
 	for rows.Next() {
-		var a Actuator
-		var enabled int
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &enabled, &a.LastSeenAt, &a.CreatedAt); err != nil {
+		a := &Actuator{}
+		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan actuator: %w", err)
 		}
-		a.Enabled = enabled != 0
 		actuators = append(actuators, a)
 	}
 	return actuators, rows.Err()
 }
 
-// IsActuatorAssignedToAgent checks if an actuator is assigned and enabled for an agent.
+// AssignActuatorToAgent creates an assignment between an agent and actuator.
+func (db *DB) AssignActuatorToAgent(agentID, actuatorID string) error {
+	id := generateID()
+	_, err := db.Exec(`
+		INSERT OR IGNORE INTO agent_actuator_assignments (id, agent_id, actuator_id, created_at)
+		VALUES (?, ?, ?, ?)
+	`, id, agentID, actuatorID, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+// UnassignActuatorFromAgent removes an assignment.
+func (db *DB) UnassignActuatorFromAgent(agentID, actuatorID string) error {
+	_, err := db.Exec(`DELETE FROM agent_actuator_assignments WHERE agent_id = ? AND actuator_id = ?`, agentID, actuatorID)
+	return err
+}
+
+// IsActuatorAssignedToAgent checks if an actuator is assigned to an agent.
 func (db *DB) IsActuatorAssignedToAgent(agentID, actuatorID string) (bool, error) {
 	var count int
 	err := db.QueryRow(`
@@ -127,35 +130,21 @@ func (db *DB) IsActuatorAssignedToAgent(agentID, actuatorID string) (bool, error
 	return count > 0, nil
 }
 
-// AssignActuatorToAgent creates or enables an assignment.
-func (db *DB) AssignActuatorToAgent(agentID, actuatorID string) error {
-	id := generateID()
-	_, err := db.Exec(`
-		INSERT INTO agent_actuator_assignments (id, agent_id, actuator_id, enabled)
-		VALUES (?, ?, ?, 1)
-		ON CONFLICT(agent_id, actuator_id) DO UPDATE SET enabled = 1
-	`, id, agentID, actuatorID)
-	return err
-}
-
-// UnassignActuatorFromAgent disables an assignment.
-func (db *DB) UnassignActuatorFromAgent(agentID, actuatorID string) error {
-	_, err := db.Exec(`
-		UPDATE agent_actuator_assignments SET enabled = 0
-		WHERE agent_id = ? AND actuator_id = ?
-	`, agentID, actuatorID)
-	return err
-}
-
 // ResolveActuatorForAgent finds the best actuator for an agent:
-// 1. Selected actuator if set and assigned
-// 2. First enabled assigned actuator
+// 1. Selected actuator (if set and assigned)
+// 2. First enabled assignment
 func (db *DB) ResolveActuatorForAgent(agentID string) (*Actuator, error) {
-	// Check selected first
+	// Check selected_actuator_id first
 	var selectedID sql.NullString
-	db.QueryRow(`SELECT selected_actuator_id FROM agents WHERE id = ?`, agentID).Scan(&selectedID)
+	err := db.QueryRow(`SELECT selected_actuator_id FROM agents WHERE id = ?`, agentID).Scan(&selectedID)
+	if err != nil {
+		return nil, err
+	}
 	if selectedID.Valid {
-		assigned, _ := db.IsActuatorAssignedToAgent(agentID, selectedID.String)
+		assigned, err := db.IsActuatorAssignedToAgent(agentID, selectedID.String)
+		if err != nil {
+			return nil, err
+		}
 		if assigned {
 			return db.GetActuatorByID(selectedID.String)
 		}
@@ -163,28 +152,27 @@ func (db *DB) ResolveActuatorForAgent(agentID string) (*Actuator, error) {
 
 	// Fall back to first enabled assignment
 	a := &Actuator{}
-	var enabled int
-	err := db.QueryRow(`
-		SELECT a.id, a.account_id, a.name, a.type, a.status, a.token_hash, a.encrypted_token, a.enabled, a.last_seen_at, a.created_at
-		FROM actuators a
-		JOIN agent_actuator_assignments aaa ON a.id = aaa.actuator_id
-		WHERE aaa.agent_id = ? AND aaa.enabled = 1
-		ORDER BY a.name LIMIT 1
-	`, agentID).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &enabled, &a.LastSeenAt, &a.CreatedAt)
+	err = db.QueryRow(`
+		SELECT act.id, act.account_id, act.name, act.type, act.status, act.token_hash,
+		       act.encrypted_token, act.enabled, act.last_seen_at, act.created_at
+		FROM actuators act
+		JOIN agent_actuator_assignments aaa ON act.id = aaa.actuator_id
+		WHERE aaa.agent_id = ? AND aaa.enabled = 1 AND act.enabled = 1
+		ORDER BY act.created_at LIMIT 1
+	`, agentID).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	a.Enabled = enabled != 0
 	return a, nil
 }
 
 // UpdateActuatorStatus sets the status and last_seen_at for an actuator.
-func (db *DB) UpdateActuatorStatus(actuatorID, status string) error {
+func (db *DB) UpdateActuatorStatus(id, status string) error {
 	_, err := db.Exec(`
 		UPDATE actuators SET status = ?, last_seen_at = ? WHERE id = ?
-	`, status, time.Now().UTC().Format(time.RFC3339), actuatorID)
+	`, status, time.Now().UTC().Format(time.RFC3339), id)
 	return err
 }

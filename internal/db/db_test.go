@@ -2,159 +2,198 @@ package db
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
-func TestFullLifecycle(t *testing.T) {
-	// Use temp directory
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
+const testMasterKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-	database, err := Open(dbPath)
+func testDB(t *testing.T) *DB {
+	t.Helper()
+	path := t.TempDir() + "/test.db"
+	db, err := Open(path)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("open db: %v", err)
 	}
-	defer database.Close()
+	t.Cleanup(func() {
+		db.Close()
+		os.Remove(path)
+	})
+	return db
+}
 
-	// Check schema version
-	ver, err := database.SchemaVersion()
+func TestMigrations(t *testing.T) {
+	db := testDB(t)
+	v, err := db.SchemaVersion()
 	if err != nil {
-		t.Fatalf("SchemaVersion: %v", err)
+		t.Fatal(err)
 	}
-	if ver != 1 {
-		t.Fatalf("expected schema version 1, got %d", ver)
+	if v != 1 {
+		t.Errorf("expected schema version 1, got %d", v)
+	}
+}
+
+func TestAccountCRUD(t *testing.T) {
+	db := testDB(t)
+
+	acc, err := db.CreateAccount("test@example.com", "password123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.Email != "test@example.com" {
+		t.Errorf("expected email test@example.com, got %s", acc.Email)
 	}
 
-	// Create account
-	accountID := generateID()
-	_, err = database.Exec(`INSERT INTO accounts (id, email, password_hash) VALUES (?, ?, ?)`,
-		accountID, "test@example.com", "hash123")
+	found, err := db.GetAccountByEmail("test@example.com")
 	if err != nil {
-		t.Fatalf("create account: %v", err)
+		t.Fatal(err)
 	}
+	if found == nil {
+		t.Fatal("expected to find account")
+	}
+	if !found.VerifyPassword("password123") {
+		t.Error("password verification failed")
+	}
+	if found.VerifyPassword("wrong") {
+		t.Error("wrong password should not verify")
+	}
+}
 
-	// Create agent
-	agent, token, err := database.CreateAgent(accountID, "test-agent")
+func TestAgentCRUD(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("test@example.com", "pass")
+	agent, token, err := db.CreateAgent(acc.ID, "test-agent")
 	if err != nil {
-		t.Fatalf("CreateAgent: %v", err)
+		t.Fatal(err)
 	}
 	if agent.Name != "test-agent" {
-		t.Fatalf("expected name 'test-agent', got %q", agent.Name)
-	}
-	if token == "" {
-		t.Fatal("expected non-empty token")
+		t.Errorf("expected name test-agent, got %s", agent.Name)
 	}
 
-	// Look up by token
-	found, err := database.GetAgentByToken(token)
+	// Lookup by token
+	found, err := db.GetAgentByToken(token)
 	if err != nil {
-		t.Fatalf("GetAgentByToken: %v", err)
+		t.Fatal(err)
 	}
 	if found == nil {
 		t.Fatal("expected to find agent by token")
 	}
 	if found.ID != agent.ID {
-		t.Fatalf("agent ID mismatch: %s vs %s", found.ID, agent.ID)
-	}
-
-	// Create actuator
-	act, actToken, err := database.CreateActuator(accountID, "test-actuator", "vps")
-	if err != nil {
-		t.Fatalf("CreateActuator: %v", err)
-	}
-	if actToken == "" {
-		t.Fatal("expected non-empty actuator token")
-	}
-
-	// Assign actuator to agent
-	if err := database.AssignActuatorToAgent(agent.ID, act.ID); err != nil {
-		t.Fatalf("AssignActuatorToAgent: %v", err)
-	}
-
-	// Check assignment
-	assigned, err := database.IsActuatorAssignedToAgent(agent.ID, act.ID)
-	if err != nil {
-		t.Fatalf("IsActuatorAssignedToAgent: %v", err)
-	}
-	if !assigned {
-		t.Fatal("expected actuator to be assigned")
-	}
-
-	// Resolve actuator for agent
-	resolved, err := database.ResolveActuatorForAgent(agent.ID)
-	if err != nil {
-		t.Fatalf("ResolveActuatorForAgent: %v", err)
-	}
-	if resolved == nil {
-		t.Fatal("expected to resolve an actuator")
-	}
-	if resolved.ID != act.ID {
-		t.Fatalf("resolved wrong actuator: %s vs %s", resolved.ID, act.ID)
+		t.Error("agent ID mismatch")
 	}
 
 	// Safe mode
-	if err := database.SetAgentSafe(agent.ID, true); err != nil {
-		t.Fatalf("SetAgentSafe: %v", err)
+	if err := db.SetAgentSafe(agent.ID, true); err != nil {
+		t.Fatal(err)
 	}
-	safeAgent, _ := database.GetAgentByID(agent.ID)
-	if !safeAgent.Safe {
-		t.Fatal("expected agent to be in safe mode")
+	updated, _ := db.GetAgentByID(agent.ID)
+	if !updated.Safe {
+		t.Error("expected agent to be in safe mode")
 	}
+}
 
-	// Global safe mode
-	if err := database.SetGlobalSafe(true); err != nil {
-		t.Fatalf("SetGlobalSafe: %v", err)
-	}
-	globalSafe, _ := database.GetGlobalSafe()
-	if !globalSafe {
-		t.Fatal("expected global safe mode to be on")
-	}
+func TestActuatorAndAssignment(t *testing.T) {
+	db := testDB(t)
 
-	// Secrets — AES-256-GCM round-trip
-	masterKey := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	secret, err := database.CreateSecret(accountID, "TEST_KEY", "test", "super-secret-value", masterKey)
+	acc, _ := db.CreateAccount("test@example.com", "pass")
+	agent, _, _ := db.CreateAgent(acc.ID, "test-agent")
+	actuator, _, err := db.CreateActuator(acc.ID, "test-actuator", "vps")
 	if err != nil {
-		t.Fatalf("CreateSecret: %v", err)
+		t.Fatal(err)
 	}
-	if secret.Name != "TEST_KEY" {
-		t.Fatalf("expected secret name TEST_KEY, got %q", secret.Name)
+
+	// Assign
+	if err := db.AssignActuatorToAgent(agent.ID, actuator.ID); err != nil {
+		t.Fatal(err)
+	}
+	assigned, err := db.IsActuatorAssignedToAgent(agent.ID, actuator.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !assigned {
+		t.Error("expected actuator to be assigned")
+	}
+
+	// Resolve
+	resolved, err := db.ResolveActuatorForAgent(agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved == nil {
+		t.Fatal("expected to resolve actuator")
+	}
+	if resolved.ID != actuator.ID {
+		t.Error("resolved wrong actuator")
+	}
+}
+
+func TestSecretEncryption(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("test@example.com", "pass")
+
+	// Create secret
+	_, err := db.CreateSecret(acc.ID, "ANTHROPIC_TOKEN", "anthropic", "sk-ant-secret-value", testMasterKey)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// Retrieve and decrypt
-	decrypted, err := database.GetSecret(accountID, "TEST_KEY", masterKey)
+	value, err := db.GetSecret(acc.ID, "ANTHROPIC_TOKEN", testMasterKey)
 	if err != nil {
-		t.Fatalf("GetSecret: %v", err)
+		t.Fatal(err)
 	}
-	if decrypted != "super-secret-value" {
-		t.Fatalf("decrypted mismatch: got %q", decrypted)
+	if value != "sk-ant-secret-value" {
+		t.Errorf("expected sk-ant-secret-value, got %s", value)
 	}
 
-	// Prefix lookup (round-robin pattern)
-	database.CreateSecret(accountID, "ANTHROPIC_TOKEN", "anthropic", "token1", masterKey)
-	database.CreateSecret(accountID, "ANTHROPIC_TOKEN_2", "anthropic", "token2", masterKey)
-	database.CreateSecret(accountID, "ANTHROPIC_TOKEN_3", "anthropic", "token3", masterKey)
+	// Prefix lookup (for round-robin)
+	db.CreateSecret(acc.ID, "ANTHROPIC_TOKEN_2", "anthropic", "sk-ant-second", testMasterKey)
+	db.CreateSecret(acc.ID, "ANTHROPIC_TOKEN_3", "anthropic", "sk-ant-third", testMasterKey)
 
-	tokens, err := database.GetSecretsByPrefix(accountID, "ANTHROPIC_TOKEN", masterKey)
+	values, err := db.GetSecretsByPrefix(acc.ID, "ANTHROPIC_TOKEN", testMasterKey)
 	if err != nil {
-		t.Fatalf("GetSecretsByPrefix: %v", err)
+		t.Fatal(err)
 	}
-	if len(tokens) != 3 {
-		t.Fatalf("expected 3 tokens, got %d", len(tokens))
+	if len(values) != 3 {
+		t.Errorf("expected 3 secrets, got %d", len(values))
+	}
+}
+
+func TestGlobalSafeMode(t *testing.T) {
+	db := testDB(t)
+
+	safe, _ := db.GetGlobalSafe()
+	if safe {
+		t.Error("expected global safe mode off by default")
 	}
 
-	// Audit log
-	if err := database.LogAudit(accountID, agent.ID, "", "test_action", "test detail"); err != nil {
-		t.Fatalf("LogAudit: %v", err)
+	db.SetGlobalSafe(true)
+	safe, _ = db.GetGlobalSafe()
+	if !safe {
+		t.Error("expected global safe mode on")
 	}
 
-	// Verify audit entry exists
-	var auditCount int
-	database.QueryRow(`SELECT count(*) FROM audit_log WHERE action = 'test_action'`).Scan(&auditCount)
-	if auditCount != 1 {
-		t.Fatalf("expected 1 audit entry, got %d", auditCount)
+	db.SetGlobalSafe(false)
+	safe, _ = db.GetGlobalSafe()
+	if safe {
+		t.Error("expected global safe mode off")
+	}
+}
+
+func TestAuditLog(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("test@example.com", "pass")
+	err := db.LogAudit(&acc.ID, nil, nil, "test_action", "test detail")
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	// Clean up
-	os.RemoveAll(dir)
+	// Verify it's in the DB
+	var count int
+	db.QueryRow(`SELECT count(*) FROM audit_log WHERE action = 'test_action'`).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 audit entry, got %d", count)
+	}
 }
