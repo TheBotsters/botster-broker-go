@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/siofra-seksbot/botster-broker-go/internal/api"
 	"github.com/siofra-seksbot/botster-broker-go/internal/config"
 	"github.com/siofra-seksbot/botster-broker-go/internal/db"
 )
@@ -34,25 +35,25 @@ func main() {
 	version, _ := database.SchemaVersion()
 	log.Printf("Schema version: %d", version)
 
-	// HTTP server — serve static files from web/ for now
-	mux := http.NewServeMux()
-
-	// Static files (the dashboard)
-	webDir := "web"
-	if _, err := os.Stat(webDir); err == nil {
-		mux.Handle("/", http.FileServer(http.Dir(webDir)))
+	// Create API server
+	srv := &api.Server{
+		DB:        database,
+		MasterKey: cfg.MasterKey,
 	}
 
-	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","schema_version":%d}`, version)
-	})
+	// Build router
+	router := srv.NewRouter()
+
+	// Serve static files from web/ if it exists
+	webDir := "web"
+	if _, err := os.Stat(webDir); err == nil {
+		router.Handle("/*", http.FileServer(http.Dir(webDir)))
+	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Listening on %s", addr)
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, router); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
