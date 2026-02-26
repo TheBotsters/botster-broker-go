@@ -1,0 +1,6 @@
+botster-broker
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
