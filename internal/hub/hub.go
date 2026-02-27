@@ -74,6 +74,10 @@ type Hub struct {
 	// Result waiting (for sync REST commands)
 	pendingMu sync.Mutex
 	pending   map[string]chan WSMessage // commandID → result channel
+
+	// Command origin tracking (for async WS result routing)
+	originMu sync.Mutex
+	origins  map[string]string // commandID → agentID
 }
 
 type commandRequest struct {
@@ -95,6 +99,7 @@ func New(database *db.DB, masterKey string) *Hub {
 		unregisterCh: make(chan *Connection, 16),
 		commandCh:    make(chan commandRequest, 64),
 		pending:      make(map[string]chan WSMessage),
+		origins:      make(map[string]string),
 	}
 }
 
@@ -195,10 +200,15 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 		h.pendingMu.Unlock()
 	}
 
+	// Track origin for async result routing
+	h.originMu.Lock()
+	h.origins[cmd.msg.ID] = cmd.agentID
+	h.originMu.Unlock()
+
 	// Send to actuator
 	data, _ := json.Marshal(cmd.msg)
 	conn.sendCh <- data
-	log.Printf("[hub] Command %s routed to actuator %s", cmd.msg.ID, actuator.Name)
+	log.Printf("[hub] Command %s routed to actuator %s (origin agent: %s)", cmd.msg.ID, actuator.Name, cmd.agentID)
 }
 
 // HandleWebSocket handles a new WebSocket connection (called from HTTP upgrade).
@@ -307,13 +317,27 @@ func (c *Connection) readPump(ctx context.Context) {
 			c.hub.pendingMu.Unlock()
 
 			if !ok {
-				// Deliver to brain via WS
+				// Deliver result to the originating brain only
+				c.hub.originMu.Lock()
+				agentID, hasOrigin := c.hub.origins[msg.ID]
+				delete(c.hub.origins, msg.ID)
+				c.hub.originMu.Unlock()
+
 				c.hub.mu.RLock()
-				// Find which brain owns this command
-				// For now, broadcast to all brains (TODO: track command→agent mapping)
-				for _, brain := range c.hub.brains {
-					data, _ := json.Marshal(msg)
-					brain.sendCh <- data
+				if hasOrigin {
+					if brain, exists := c.hub.brains[agentID]; exists {
+						data, _ := json.Marshal(msg)
+						brain.sendCh <- data
+					} else {
+						log.Printf("[hub] Command %s result: origin brain %s not connected", msg.ID, agentID)
+					}
+				} else {
+					// No origin tracked — broadcast as fallback (shouldn't happen)
+					log.Printf("[hub] Command %s result: no origin tracked, broadcasting", msg.ID)
+					for _, brain := range c.hub.brains {
+						data, _ := json.Marshal(msg)
+						brain.sendCh <- data
+					}
 				}
 				c.hub.mu.RUnlock()
 			}

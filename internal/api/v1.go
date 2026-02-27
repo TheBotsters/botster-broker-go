@@ -153,12 +153,16 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleActuatorsList(w http.ResponseWriter, r *http.Request) {
-	// For now, return all actuators from all accounts (admin view)
-	// TODO: scope to authenticated account
+	agent := s.authenticateAgent(w, r)
+	if agent == nil {
+		return
+	}
+
 	var actuators []map[string]interface{}
 	rows, err := s.DB.Query(`
-		SELECT id, name, type, status, enabled, last_seen_at FROM actuators ORDER BY created_at
-	`)
+		SELECT id, name, type, status, enabled, last_seen_at FROM actuators
+		WHERE account_id = ? ORDER BY created_at
+	`, agent.AccountID)
 	if err != nil {
 		jsonError(w, 500, "Failed to list actuators")
 		return
