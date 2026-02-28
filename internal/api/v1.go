@@ -72,6 +72,9 @@ func (s *Server) NewRouter() chi.Router {
 		r.Post("/agents/{agentId}/actuators", s.handleCreateActuatorForAgent)
 		r.Delete("/actuators/{id}", s.handleDeleteActuator)
 
+		// Agent group assignment (root only)
+		r.Post("/agents/{id}/assign-group", s.handleAssignAgentToGroup)
+
 		// Secret management (root or admin scoped)
 		r.Post("/secrets", s.handleCreateSecret)
 		r.Put("/secrets/{id}", s.handleUpdateSecret)
@@ -80,6 +83,14 @@ func (s *Server) NewRouter() chi.Router {
 
 		// Audit log (root or admin scoped)
 		r.Get("/audit", s.handleListAudit)
+
+		// Group management (root only, with group-admin reads)
+		r.Post("/groups", s.handleCreateGroup)
+		r.Get("/groups", s.handleListGroups)
+		r.Patch("/groups/{id}", s.handleUpdateGroup)
+		r.Delete("/groups/{id}", s.handleDeleteGroup)
+		r.Post("/groups/{id}/rotate-key", s.handleRotateGroupKey)
+		r.Get("/groups/{id}/agents", s.handleListGroupAgents)
 	})
 
 	return r

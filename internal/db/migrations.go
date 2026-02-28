@@ -129,6 +129,22 @@ var migrations = []migration{
 			VALUES ('retention_months', '6', datetime('now'));
 		`,
 	},
+	{
+		version:     4,
+		description: "Add groups table and group_id to agents",
+		sql: `
+			CREATE TABLE IF NOT EXISTS groups (
+				id TEXT PRIMARY KEY,
+				account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				admin_key_hash TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(account_id, name)
+			);
+
+			ALTER TABLE agents ADD COLUMN group_id TEXT REFERENCES groups(id);
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.

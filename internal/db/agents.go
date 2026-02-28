@@ -18,7 +18,21 @@ type Agent struct {
 	Safe               bool
 	SelectedActuatorID sql.NullString
 	Role               string
+	GroupID            sql.NullString
 	CreatedAt          string
+}
+
+// agentScanFields returns the standard column list for agent SELECT queries.
+const agentColumns = `id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, group_id, created_at`
+
+// scanAgent scans a row into an Agent struct.
+func scanAgent(scanner interface {
+	Scan(dest ...interface{}) error
+}, a *Agent) error {
+	return scanner.Scan(
+		&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
+		&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt,
+	)
 }
 
 // CreateAgent creates a new agent and returns it along with the plaintext token.
@@ -48,10 +62,9 @@ func (db *DB) CreateAgent(accountID, name string) (*Agent, string, error) {
 // GetAgentByID returns an agent by its ID.
 func (db *DB) GetAgentByID(id string) (*Agent, error) {
 	a := &Agent{}
-	err := db.QueryRow(`
-		SELECT id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, created_at
-		FROM agents WHERE id = ?
-	`, id).Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken, &a.Safe, &a.SelectedActuatorID, &a.Role, &a.CreatedAt)
+	err := db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE id = ?`, id).
+		Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
+			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -65,10 +78,9 @@ func (db *DB) GetAgentByID(id string) (*Agent, error) {
 func (db *DB) GetAgentByToken(token string) (*Agent, error) {
 	hash := auth.HashToken(token)
 	a := &Agent{}
-	err := db.QueryRow(`
-		SELECT id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, created_at
-		FROM agents WHERE token_hash = ?
-	`, hash).Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken, &a.Safe, &a.SelectedActuatorID, &a.Role, &a.CreatedAt)
+	err := db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE token_hash = ?`, hash).
+		Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
+			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -80,10 +92,7 @@ func (db *DB) GetAgentByToken(token string) (*Agent, error) {
 
 // ListAgentsByAccount returns all agents belonging to an account.
 func (db *DB) ListAgentsByAccount(accountID string) ([]*Agent, error) {
-	rows, err := db.Query(`
-		SELECT id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, created_at
-		FROM agents WHERE account_id = ? ORDER BY created_at
-	`, accountID)
+	rows, err := db.Query(`SELECT `+agentColumns+` FROM agents WHERE account_id = ? ORDER BY created_at`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query agents: %w", err)
 	}
@@ -92,7 +101,8 @@ func (db *DB) ListAgentsByAccount(accountID string) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken, &a.Safe, &a.SelectedActuatorID, &a.Role, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
+			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		agents = append(agents, a)
@@ -132,10 +142,9 @@ func (db *DB) DeleteAgent(id string) error {
 // For account-scoped lookup, use GetAgentByNameAndAccount.
 func (db *DB) GetAgentByName(name string) (*Agent, error) {
 	a := &Agent{}
-	err := db.QueryRow(`
-		SELECT id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, created_at
-		FROM agents WHERE name = ? LIMIT 1
-	`, name).Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken, &a.Safe, &a.SelectedActuatorID, &a.Role, &a.CreatedAt)
+	err := db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE name = ? LIMIT 1`, name).
+		Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
+			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -185,10 +194,7 @@ func (db *DB) RotateAgentToken(agentID string) (string, error) {
 
 // ListAllAgents returns all agents across all accounts.
 func (db *DB) ListAllAgents() ([]*Agent, error) {
-	rows, err := db.Query(`
-		SELECT id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, created_at
-		FROM agents ORDER BY account_id, created_at
-	`)
+	rows, err := db.Query(`SELECT ` + agentColumns + ` FROM agents ORDER BY account_id, created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("query all agents: %w", err)
 	}
@@ -197,7 +203,8 @@ func (db *DB) ListAllAgents() ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken, &a.Safe, &a.SelectedActuatorID, &a.Role, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
+			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		agents = append(agents, a)

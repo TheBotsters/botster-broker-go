@@ -14,6 +14,16 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- groups must be defined before agents (foreign key dependency)
+CREATE TABLE IF NOT EXISTS groups (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    admin_key_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(account_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -22,7 +32,8 @@ CREATE TABLE IF NOT EXISTS agents (
     encrypted_token TEXT,
     safe INTEGER NOT NULL DEFAULT 0,
     selected_actuator_id TEXT,
-    role TEXT NOT NULL DEFAULT 'agent',
+    role TEXT NOT NULL DEFAULT 'agent',  -- 'agent' | 'admin' | 'operator'
+    group_id TEXT REFERENCES groups(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(account_id, name)
 );

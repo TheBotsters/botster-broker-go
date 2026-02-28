@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/siofra-seksbot/botster-broker-go/internal/db"
 )
 
 // ─── Account CRUD (root only) ──────────────────────────────────────────────────
@@ -115,6 +116,48 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 // ─── Agent Management under Account ───────────────────────────────────────────
 
+// formatAgent formats a single agent for API responses.
+func formatAgent(a *db.Agent) map[string]interface{} {
+	groupID := interface{}(nil)
+	if a.GroupID.Valid {
+		groupID = a.GroupID.String
+	}
+	return map[string]interface{}{
+		"id":         a.ID,
+		"name":       a.Name,
+		"role":       a.Role,
+		"safe":       a.Safe,
+		"group_id":   groupID,
+		"created_at": a.CreatedAt,
+	}
+}
+
+// formatAgents formats a slice of agents for API responses.
+func formatAgents(agents []*db.Agent) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(agents))
+	for i, a := range agents {
+		result[i] = formatAgent(a)
+	}
+	return result
+}
+
+// formatAudit formats audit entries for API responses.
+func formatAudit(entries []*db.AuditEntry) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(entries))
+	for i, e := range entries {
+		result[i] = map[string]interface{}{
+			"id":          e.ID,
+			"account_id":  e.AccountID,
+			"agent_id":    e.AgentID,
+			"actuator_id": e.ActuatorID,
+			"action":      e.Action,
+			"detail":      e.Detail,
+			"created_at":  e.CreatedAt,
+		}
+	}
+	return result
+}
+
 // POST /api/accounts/{id}/agents — root only
 func (s *Server) handleCreateAgentForAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
@@ -152,15 +195,46 @@ func (s *Server) handleCreateAgentForAccount(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// GET /api/accounts/{id}/agents — root or admin (scoped to own account)
+// GET /api/accounts/{id}/agents — root, admin (scoped), or group admin (group-scoped)
 func (s *Server) handleListAgentsForAccount(w http.ResponseWriter, r *http.Request) {
+	accountID := chi.URLParam(r, "id")
+
+	// Root sees all agents in the account
+	if s.requireRoot(r) {
+		acc, err := s.DB.GetAccountByID(accountID)
+		if err != nil || acc == nil {
+			jsonError(w, 404, "Account not found")
+			return
+		}
+		agents, err := s.DB.ListAgentsByAccount(accountID)
+		if err != nil {
+			jsonError(w, 500, "Failed to list agents")
+			return
+		}
+		jsonResponse(w, 200, formatAgents(agents))
+		return
+	}
+
+	// Group admin — sees only their group's agents (filtered by account for safety)
+	if group, ok := s.requireGroupAdmin(w, r); ok {
+		if group.AccountID != accountID {
+			jsonError(w, 403, "Forbidden: group not in this account")
+			return
+		}
+		agents, err := s.DB.GetAgentsByGroup(group.ID)
+		if err != nil {
+			jsonError(w, 500, "Failed to list agents")
+			return
+		}
+		jsonResponse(w, 200, formatAgents(agents))
+		return
+	}
+
+	// Account admin — scoped to own account
 	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
 	if !ok {
 		return
 	}
-	accountID := chi.URLParam(r, "id")
-
-	// Admin can only see their own account
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
 		jsonError(w, 403, "Forbidden: account scope violation")
 		return
@@ -177,18 +251,7 @@ func (s *Server) handleListAgentsForAccount(w http.ResponseWriter, r *http.Reque
 		jsonError(w, 500, "Failed to list agents")
 		return
 	}
-
-	result := make([]map[string]interface{}, len(agents))
-	for i, a := range agents {
-		result[i] = map[string]interface{}{
-			"id":         a.ID,
-			"name":       a.Name,
-			"role":       a.Role,
-			"safe":       a.Safe,
-			"created_at": a.CreatedAt,
-		}
-	}
-	jsonResponse(w, 200, result)
+	jsonResponse(w, 200, formatAgents(agents))
 }
 
 // DELETE /api/accounts/{id}/agents/{agentId} — root only
@@ -213,12 +276,9 @@ func (s *Server) handleDeleteAgentFromAccount(w http.ResponseWriter, r *http.Req
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }
 
-// PATCH /api/accounts/{id}/agents/{agentId} — root only (for role assignment, etc.)
+// PATCH /api/accounts/{id}/agents/{agentId}
+// Auth: root (full access), group admin (safe mode only, scoped to group), account admin (name + safe).
 func (s *Server) handleUpdateAgentInAccount(w http.ResponseWriter, r *http.Request) {
-	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
-		return
-	}
 	accountID := chi.URLParam(r, "id")
 	agentID := chi.URLParam(r, "agentId")
 
@@ -234,19 +294,96 @@ func (s *Server) handleUpdateAgentInAccount(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Allow name, role, safe
+	// Root — can update anything including role
+	if s.requireRoot(r) {
+		updates := buildAgentUpdatesRoot(body)
+		if err := s.DB.UpdateAgent(agentID, updates); err != nil {
+			jsonError(w, 500, "Failed to update agent")
+			return
+		}
+		s.DB.LogAudit(&accountID, &agentID, nil, "agent.update", agent.Name)
+		updated, _ := s.DB.GetAgentByID(agentID)
+		jsonResponse(w, 200, formatAgent(updated))
+		return
+	}
+
+	// Group admin — safe mode only, scoped to group
+	if group, ok := s.requireGroupAdmin(w, r); ok {
+		if !s.isAgentInGroup(agentID, group.ID) {
+			jsonError(w, 403, "Agent not in your group")
+			return
+		}
+		updates := buildSafeUpdate(body)
+		if len(updates) == 0 {
+			jsonError(w, 400, "Group admin can only update 'safe' field")
+			return
+		}
+		if err := s.DB.UpdateAgent(agentID, updates); err != nil {
+			jsonError(w, 500, "Failed to update agent")
+			return
+		}
+		s.DB.LogAudit(&accountID, &agentID, nil, "agent.update", agent.Name)
+		updated, _ := s.DB.GetAgentByID(agentID)
+		jsonResponse(w, 200, formatAgent(updated))
+		return
+	}
+
+	// Account admin — name + safe, no role changes
+	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
+		jsonError(w, 403, "Forbidden: account scope violation")
+		return
+	}
+	updates := buildAgentUpdatesAdmin(body)
+	if err := s.DB.UpdateAgent(agentID, updates); err != nil {
+		jsonError(w, 500, "Failed to update agent")
+		return
+	}
+	s.DB.LogAudit(&accountID, &agentID, nil, "agent.update", agent.Name)
+	updated, _ := s.DB.GetAgentByID(agentID)
+	jsonResponse(w, 200, formatAgent(updated))
+}
+
+// buildAgentUpdatesRoot builds update map for root — allows role, name, safe.
+func buildAgentUpdatesRoot(body map[string]interface{}) map[string]interface{} {
 	updates := map[string]interface{}{}
 	if v, ok := body["role"]; ok {
 		role, _ := v.(string)
-		if role != "agent" && role != "admin" {
-			jsonError(w, 400, "role must be 'agent' or 'admin'")
-			return
+		if role == "agent" || role == "admin" || role == "operator" {
+			updates["role"] = role
 		}
-		updates["role"] = role
 	}
 	if v, ok := body["name"]; ok {
 		updates["name"] = v
 	}
+	if upd := buildSafeUpdate(body); len(upd) > 0 {
+		for k, v := range upd {
+			updates[k] = v
+		}
+	}
+	return updates
+}
+
+// buildAgentUpdatesAdmin builds update map for account admin — name + safe only.
+func buildAgentUpdatesAdmin(body map[string]interface{}) map[string]interface{} {
+	updates := map[string]interface{}{}
+	if v, ok := body["name"]; ok {
+		updates["name"] = v
+	}
+	if upd := buildSafeUpdate(body); len(upd) > 0 {
+		for k, v := range upd {
+			updates[k] = v
+		}
+	}
+	return updates
+}
+
+// buildSafeUpdate builds update map for safe field only.
+func buildSafeUpdate(body map[string]interface{}) map[string]interface{} {
+	updates := map[string]interface{}{}
 	if v, ok := body["safe"]; ok {
 		if safeBool, ok := v.(bool); ok {
 			safeInt := 0
@@ -256,28 +393,12 @@ func (s *Server) handleUpdateAgentInAccount(w http.ResponseWriter, r *http.Reque
 			updates["safe"] = safeInt
 		}
 	}
-
-	if err := s.DB.UpdateAgent(agentID, updates); err != nil {
-		jsonError(w, 500, "Failed to update agent")
-		return
-	}
-	s.DB.LogAudit(&accountID, &agentID, nil, "agent.update", agent.Name)
-
-	updated, _ := s.DB.GetAgentByID(agentID)
-	jsonResponse(w, 200, map[string]interface{}{
-		"id":   updated.ID,
-		"name": updated.Name,
-		"role": updated.Role,
-		"safe": updated.Safe,
-	})
+	return updates
 }
 
-// POST /api/accounts/{id}/agents/{agentId}/rotate-token — root or admin (admin: own token only)
+// POST /api/accounts/{id}/agents/{agentId}/rotate-token
+// Auth: root (any agent), group admin (scoped to group), account admin (own token only).
 func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) {
-	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
-	if !ok {
-		return
-	}
 	accountID := chi.URLParam(r, "id")
 	agentID := chi.URLParam(r, "agentId")
 
@@ -287,7 +408,39 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Admin can only rotate their own token
+	// Root — unrestricted
+	if s.requireRoot(r) {
+		newToken, err := s.DB.RotateAgentToken(agentID)
+		if err != nil {
+			jsonError(w, 500, "Failed to rotate token")
+			return
+		}
+		s.DB.LogAudit(&accountID, &agentID, nil, "agent.rotate-token", target.Name)
+		jsonResponse(w, 200, map[string]interface{}{"ok": true, "token": newToken})
+		return
+	}
+
+	// Group admin — any agent in the group
+	if group, ok := s.requireGroupAdmin(w, r); ok {
+		if !s.isAgentInGroup(agentID, group.ID) {
+			jsonError(w, 403, "Agent not in your group")
+			return
+		}
+		newToken, err := s.DB.RotateAgentToken(agentID)
+		if err != nil {
+			jsonError(w, 500, "Failed to rotate token")
+			return
+		}
+		s.DB.LogAudit(&accountID, &agentID, nil, "agent.rotate-token", target.Name)
+		jsonResponse(w, 200, map[string]interface{}{"ok": true, "token": newToken})
+		return
+	}
+
+	// Account admin — own token only
+	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+	if !ok {
+		return
+	}
 	if !isRoot {
 		if !requireAccountScope(adminAgent.AccountID, accountID) || adminAgent.ID != agentID {
 			jsonError(w, 403, "Forbidden: admin can only rotate own token")
@@ -301,7 +454,6 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.DB.LogAudit(&accountID, &agentID, nil, "agent.rotate-token", target.Name)
-
 	jsonResponse(w, 200, map[string]interface{}{
 		"ok":    true,
 		"token": newToken,
@@ -310,23 +462,38 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 
 // ─── Actuator Management ───────────────────────────────────────────────────────
 
-// POST /api/agents/{agentId}/actuators — root or admin (scoped)
+// POST /api/agents/{agentId}/actuators — root or admin (scoped), or group admin (group-scoped)
 func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Request) {
-	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
-	if !ok {
-		return
-	}
 	agentID := chi.URLParam(r, "agentId")
 
-	agent, err := s.DB.GetAgentByID(agentID)
-	if err != nil || agent == nil {
+	agentTarget, err := s.DB.GetAgentByID(agentID)
+	if err != nil || agentTarget == nil {
 		jsonError(w, 404, "Agent not found")
 		return
 	}
 
-	// Admin scope check
-	if !isRoot && !requireAccountScope(adminAgent.AccountID, agent.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+	// Check auth: root > group admin > account admin
+	authorized := false
+	if s.requireRoot(r) {
+		authorized = true
+	} else if group, ok := s.requireGroupAdmin(w, r); ok {
+		if s.isAgentInGroup(agentID, group.ID) {
+			authorized = true
+		} else {
+			jsonError(w, 403, "Agent not in your group")
+			return
+		}
+	} else {
+		isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+		if !ok {
+			return
+		}
+		if isRoot || requireAccountScope(adminAgent.AccountID, agentTarget.AccountID) {
+			authorized = true
+		}
+	}
+	if !authorized {
+		jsonError(w, 403, "Forbidden")
 		return
 	}
 
@@ -342,7 +509,7 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 		body.Type = "vps"
 	}
 
-	actuator, token, err := s.DB.CreateActuator(agent.AccountID, body.Name, body.Type)
+	actuator, token, err := s.DB.CreateActuator(agentTarget.AccountID, body.Name, body.Type)
 	if err != nil {
 		jsonError(w, 409, "Actuator creation failed")
 		return
@@ -353,7 +520,7 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 		jsonError(w, 500, "Actuator created but assignment failed")
 		return
 	}
-	s.DB.LogAudit(&agent.AccountID, &agentID, &actuator.ID, "actuator.create", actuator.Name)
+	s.DB.LogAudit(&agentTarget.AccountID, &agentID, &actuator.ID, "actuator.create", actuator.Name)
 
 	jsonResponse(w, 201, map[string]interface{}{
 		"id":         actuator.ID,
@@ -364,12 +531,8 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// DELETE /api/actuators/{id} — root or admin (scoped)
+// DELETE /api/actuators/{id} — root or admin (scoped), or group admin (group-scoped)
 func (s *Server) handleDeleteActuator(w http.ResponseWriter, r *http.Request) {
-	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
-	if !ok {
-		return
-	}
 	actuatorID := chi.URLParam(r, "id")
 
 	actuator, err := s.DB.GetActuatorByID(actuatorID)
@@ -378,10 +541,37 @@ func (s *Server) handleDeleteActuator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Admin scope check
-	if !isRoot && !requireAccountScope(adminAgent.AccountID, actuator.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
-		return
+	// Check auth: root > group admin > account admin
+	if s.requireRoot(r) {
+		// fall through
+	} else if group, ok := s.requireGroupAdmin(w, r); ok {
+		// Group admin can delete actuators only if assigned to an agent in their group
+		groupAgents, err := s.DB.GetAgentsByGroup(group.ID)
+		if err != nil {
+			jsonError(w, 500, "Internal error")
+			return
+		}
+		allowed := false
+		for _, ga := range groupAgents {
+			assigned, _ := s.DB.IsActuatorAssignedToAgent(ga.ID, actuatorID)
+			if assigned {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			jsonError(w, 403, "Actuator not assigned to an agent in your group")
+			return
+		}
+	} else {
+		isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+		if !ok {
+			return
+		}
+		if !isRoot && !requireAccountScope(adminAgent.AccountID, actuator.AccountID) {
+			jsonError(w, 403, "Forbidden: account scope violation")
+			return
+		}
 	}
 
 	if err := s.DB.DeleteActuator(actuatorID); err != nil {
@@ -552,13 +742,8 @@ func (s *Server) handleRevokeSecretAccess(w http.ResponseWriter, r *http.Request
 
 // ─── Audit Log ─────────────────────────────────────────────────────────────────
 
-// GET /api/audit — root sees all, admin sees own account
+// GET /api/audit — root sees all, admin/group-admin/operator sees scoped view
 func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
-	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
-	if !ok {
-		return
-	}
-
 	limitStr := r.URL.Query().Get("limit")
 	limit := 200
 	if limitStr != "" {
@@ -567,30 +752,61 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var accountFilter *string
-	if !isRoot {
-		accountFilter = &adminAgent.AccountID
-	} else if accID := r.URL.Query().Get("account_id"); accID != "" {
-		accountFilter = &accID
+	// Root sees all
+	if s.requireRoot(r) {
+		var accountFilter *string
+		if accID := r.URL.Query().Get("account_id"); accID != "" {
+			accountFilter = &accID
+		}
+		entries, err := s.DB.ListAuditLog(accountFilter, limit)
+		if err != nil {
+			jsonError(w, 500, "Failed to list audit log")
+			return
+		}
+		jsonResponse(w, 200, formatAudit(entries))
+		return
 	}
 
-	entries, err := s.DB.ListAuditLog(accountFilter, limit)
+	// Group admin — scoped to their account
+	if group, ok := s.requireGroupAdmin(w, r); ok {
+		accountFilter := group.AccountID
+		entries, err := s.DB.ListAuditLog(&accountFilter, limit)
+		if err != nil {
+			jsonError(w, 500, "Failed to list audit log")
+			return
+		}
+		jsonResponse(w, 200, formatAudit(entries))
+		return
+	}
+
+	// Account admin or operator — scoped to their account
+	token := extractToken(r)
+	if token == "" {
+		token = r.Header.Get("X-Agent-Token")
+	}
+	if token == "" {
+		jsonError(w, 401, "Missing auth token or admin key")
+		return
+	}
+	agent, err := s.DB.GetAgentByToken(token)
+	if err != nil {
+		jsonError(w, 500, "Internal error")
+		return
+	}
+	if agent == nil {
+		jsonError(w, 401, "Invalid token")
+		return
+	}
+	if agent.Role != "admin" && agent.Role != "operator" {
+		jsonError(w, 403, "Forbidden: admin, operator, or master key required")
+		return
+	}
+
+	accountFilter := agent.AccountID
+	entries, err := s.DB.ListAuditLog(&accountFilter, limit)
 	if err != nil {
 		jsonError(w, 500, "Failed to list audit log")
 		return
 	}
-
-	result := make([]map[string]interface{}, len(entries))
-	for i, e := range entries {
-		result[i] = map[string]interface{}{
-			"id":          e.ID,
-			"account_id":  e.AccountID,
-			"agent_id":    e.AgentID,
-			"actuator_id": e.ActuatorID,
-			"action":      e.Action,
-			"detail":      e.Detail,
-			"created_at":  e.CreatedAt,
-		}
-	}
-	jsonResponse(w, 200, result)
+	jsonResponse(w, 200, formatAudit(entries))
 }
