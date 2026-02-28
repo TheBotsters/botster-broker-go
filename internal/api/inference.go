@@ -40,6 +40,7 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,6 +50,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
+	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
 )
 
 // ─── Round-Robin State ─────────────────────────────────────────────────────────
@@ -91,6 +95,7 @@ type inferenceAgentInfo struct {
 //  3. Authorization: Bearer <token>
 //  4. x-api-key header
 //
+// For scoped tokens, it also stores the scoped capabilities in the request context.
 // This mirrors the TS authenticateAgent() in inference.ts.
 func (s *Server) authenticateInferenceAgent(r *http.Request) (*inferenceAgentInfo, error) {
 	var token string
@@ -99,14 +104,31 @@ func (s *Server) authenticateInferenceAgent(r *http.Request) (*inferenceAgentInf
 		token = v
 	} else if v := r.URL.Query().Get("agent_token"); v != "" {
 		token = v
-	} else if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-		token = strings.TrimPrefix(auth, "Bearer ")
+	} else if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
+		token = strings.TrimPrefix(a, "Bearer ")
 	} else if v := r.Header.Get("x-api-key"); v != "" {
 		token = v
 	}
 
 	if token == "" {
 		return nil, nil
+	}
+
+	// Handle scoped tokens — verify HMAC, inject caps into context
+	if isScopedToken(token) {
+		payload, err := s.verifyScopedForInference(token, r)
+		if err != nil {
+			return nil, nil // treat expired/invalid as unauthenticated
+		}
+		agent, err := s.DB.GetAgentByID(payload.AgentID)
+		if err != nil || agent == nil {
+			return nil, nil
+		}
+		return &inferenceAgentInfo{
+			ID:        agent.ID,
+			AccountID: agent.AccountID,
+			Name:      agent.Name,
+		}, nil
 	}
 
 	agent, err := s.DB.GetAgentByToken(token)
@@ -120,6 +142,32 @@ func (s *Server) authenticateInferenceAgent(r *http.Request) (*inferenceAgentInf
 		ID:        agent.ID,
 		AccountID: agent.AccountID,
 		Name:      agent.Name,
+	}, nil
+}
+
+// isScopedToken returns true if the token starts with the scoped prefix.
+func isScopedToken(token string) bool {
+	return strings.HasPrefix(token, "seks_scoped_")
+}
+
+// scopedPayloadForInference holds the minimal fields from a verified scoped token.
+type scopedPayloadForInference struct {
+	AgentID string
+	Caps    []string
+}
+
+// verifyScopedForInference verifies a scoped token and injects caps into the request context.
+func (s *Server) verifyScopedForInference(token string, r *http.Request) (*scopedPayloadForInference, error) {
+	payload, err := auth.VerifyScopedToken(token, s.MasterKey)
+	if err != nil {
+		return nil, err
+	}
+	// Inject caps into context so checkScopedCapability works in this handler
+	enriched := withScopedCaps(r, payload.Caps)
+	*r = *enriched
+	return &scopedPayloadForInference{
+		AgentID: payload.AgentID,
+		Caps:    payload.Caps,
 	}, nil
 }
 
@@ -326,8 +374,18 @@ func (s *Server) resolveInferenceKeys(agent *inferenceAgentInfo, provider string
 
 // ─── SSE Streaming Helper ──────────────────────────────────────────────────────
 
+// tapAgentContext holds agent info for tap event publishing.
+type tapAgentContext struct {
+	AgentID   string
+	AgentName string
+	Provider  string
+	Model     string
+	Path      string
+}
+
 // streamInferenceResponse pipes an upstream SSE/streaming response body to the client.
-func streamInferenceResponse(w http.ResponseWriter, body io.ReadCloser, latencyMs int64, provider string) {
+// If t is non-nil, it publishes chunk events to the inference tap.
+func streamInferenceResponse(w http.ResponseWriter, body io.ReadCloser, latencyMs int64, provider string, t *tap.InferenceTap, tapCtx *tapAgentContext) {
 	defer body.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -338,19 +396,63 @@ func streamInferenceResponse(w http.ResponseWriter, body io.ReadCloser, latencyM
 	w.WriteHeader(http.StatusOK)
 
 	flusher, canFlush := w.(http.Flusher)
-	buf := make([]byte, 4096)
-	for {
-		n, err := body.Read(buf)
-		if n > 0 {
-			w.Write(buf[:n]) //nolint:errcheck
-			if canFlush {
-				flusher.Flush()
+
+	if t == nil || tapCtx == nil {
+		// No tap — simple passthrough
+		buf := make([]byte, 4096)
+		for {
+			n, err := body.Read(buf)
+			if n > 0 {
+				w.Write(buf[:n]) //nolint:errcheck
+				if canFlush {
+					flusher.Flush()
+				}
+			}
+			if err != nil {
+				break
 			}
 		}
-		if err != nil {
-			break
+		return
+	}
+
+	// With tap: read line-by-line (SSE is line-based), publish chunks, write to client.
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Write the raw line + newline to client
+		fmt.Fprintln(w, line) //nolint:errcheck
+		if canFlush {
+			flusher.Flush()
+		}
+		// Publish chunk event for data lines
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			if data != "[DONE]" && data != "" {
+				t.Publish(tap.InferenceEvent{
+					Type:      "chunk",
+					AgentID:   tapCtx.AgentID,
+					AgentName: tapCtx.AgentName,
+					Provider:  tapCtx.Provider,
+					Model:     tapCtx.Model,
+					Path:      tapCtx.Path,
+					Timestamp: time.Now().UTC().Format(time.RFC3339),
+					Data:      data,
+				})
+			}
 		}
 	}
+
+	// Publish complete event
+	t.Publish(tap.InferenceEvent{
+		Type:      "complete",
+		AgentID:   tapCtx.AgentID,
+		AgentName: tapCtx.AgentName,
+		Provider:  tapCtx.Provider,
+		Model:     tapCtx.Model,
+		Path:      tapCtx.Path,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // ─── Generic Inference Body Builders ──────────────────────────────────────────
@@ -463,6 +565,12 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check scoped capability for this provider
+	if !checkScopedCapability(r, "inference/"+providerName) {
+		jsonError(w, http.StatusForbidden, "Scoped token does not have capability: inference/"+providerName)
+		return
+	}
+
 	keys, statusCode, errMsg := s.resolveInferenceKeys(agent, providerName)
 	if statusCode != 0 {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.request", fmt.Sprintf("inference/%s denied: %s", providerName, errMsg))
@@ -535,6 +643,27 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf(`inference/%s model=%s stream=%v msgs=%d authMode=%s`,
 			providerName, model, stream, msgCount, string(oauthAuthMode)))
 
+	// Publish tap request event
+	tapCtxInference := &tapAgentContext{
+		AgentID:   agent.ID,
+		AgentName: agent.Name,
+		Provider:  providerName,
+		Model:     model,
+		Path:      "/v1/inference",
+	}
+	if s.Tap != nil {
+		s.Tap.Publish(tap.InferenceEvent{
+			Type:      "request",
+			AgentID:   agent.ID,
+			AgentName: agent.Name,
+			Provider:  providerName,
+			Model:     model,
+			Method:    r.Method,
+			Path:      "/v1/inference",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
 	providerBody := buildInferenceBody(providerName, rawBody)
 	bodyBytes, _ := json.Marshal(providerBody)
 
@@ -550,6 +679,18 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		latencyMs := time.Since(startTime).Milliseconds()
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.error",
 			fmt.Sprintf(`inference/%s model=%s latencyMs=%d error=%s`, providerName, model, latencyMs, err.Error()))
+		if s.Tap != nil {
+			s.Tap.Publish(tap.InferenceEvent{
+				Type:      "error",
+				AgentID:   agent.ID,
+				AgentName: agent.Name,
+				Provider:  providerName,
+				Model:     model,
+				Path:      "/v1/inference",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Data:      err.Error(),
+			})
+		}
 		jsonError(w, http.StatusBadGateway, "Provider request failed: "+err.Error())
 		return
 	}
@@ -597,7 +738,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	if (stream || forceStream) && (isSSE || forceStream) {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.streaming",
 			fmt.Sprintf(`inference/%s model=%s latencyMs=%d`, providerName, model, latencyMs))
-		streamInferenceResponse(w, resp.Body, latencyMs, providerName)
+		streamInferenceResponse(w, resp.Body, latencyMs, providerName, s.Tap, tapCtxInference)
 		return
 	}
 
@@ -617,6 +758,20 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.complete",
 		fmt.Sprintf(`inference/%s model=%s latencyMs=%d tokensIn=%d tokensOut=%d`,
 			providerName, model, latencyMs, tokensIn, tokensOut))
+
+	if s.Tap != nil {
+		s.Tap.Publish(tap.InferenceEvent{
+			Type:      "complete",
+			AgentID:   agent.ID,
+			AgentName: agent.Name,
+			Provider:  providerName,
+			Model:     model,
+			Path:      "/v1/inference",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			TokensIn:  tokensIn,
+			TokensOut: tokensOut,
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Spine-Latency-Ms", fmt.Sprintf("%d", latencyMs))
@@ -646,6 +801,12 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 	if statusCode != 0 {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/anthropic denied: "+errMsg)
 		jsonError(w, statusCode, errMsg)
+		return
+	}
+
+	// Check scoped capability
+	if !checkScopedCapability(r, "inference/anthropic") {
+		jsonError(w, http.StatusForbidden, "Scoped token does not have capability: inference/anthropic")
 		return
 	}
 
@@ -680,6 +841,27 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 
 	clientBeta := r.Header.Get("anthropic-beta")
 	clientVersion := r.Header.Get("anthropic-version")
+
+	// Publish tap request event
+	tapCtxAnthropic := &tapAgentContext{
+		AgentID:   agent.ID,
+		AgentName: agent.Name,
+		Provider:  "anthropic",
+		Model:     model,
+		Path:      providerPath,
+	}
+	if s.Tap != nil {
+		s.Tap.Publish(tap.InferenceEvent{
+			Type:      "request",
+			AgentID:   agent.ID,
+			AgentName: agent.Name,
+			Provider:  "anthropic",
+			Model:     model,
+			Method:    r.Method,
+			Path:      providerPath,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
 
 	maxAttempts := len(keys)
 	if maxAttempts > 5 {
@@ -765,7 +947,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.streaming",
 				fmt.Sprintf(`inference/anthropic model=%s latencyMs=%d keyIdx=%d totalKeys=%d`,
 					model, latencyMs, attempt+1, len(keys)))
-			streamInferenceResponse(w, resp.Body, latencyMs, "anthropic")
+			streamInferenceResponse(w, resp.Body, latencyMs, "anthropic", s.Tap, tapCtxAnthropic)
 			return
 		}
 
@@ -774,6 +956,18 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.complete",
 			fmt.Sprintf(`inference/anthropic model=%s latencyMs=%d keyIdx=%d totalKeys=%d`,
 				model, latencyMs, attempt+1, len(keys)))
+
+		if s.Tap != nil {
+			s.Tap.Publish(tap.InferenceEvent{
+				Type:      "complete",
+				AgentID:   agent.ID,
+				AgentName: agent.Name,
+				Provider:  "anthropic",
+				Model:     model,
+				Path:      providerPath,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			})
+		}
 
 		ct := resp.Header.Get("Content-Type")
 		if ct == "" {
@@ -813,6 +1007,12 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	if statusCode != 0 {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+errMsg)
 		jsonError(w, statusCode, errMsg)
+		return
+	}
+
+	// Check scoped capability
+	if !checkScopedCapability(r, "inference/openai") {
+		jsonError(w, http.StatusForbidden, "Scoped token does not have capability: inference/openai")
 		return
 	}
 
@@ -938,6 +1138,26 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf(`inference/openai model=%s path=%s authMode=%s oauthExpires=%d`,
 			model, logPath, string(effectiveMode), authResult.Expires))
 
+	tapCtxOpenAI := &tapAgentContext{
+		AgentID:   agent.ID,
+		AgentName: agent.Name,
+		Provider:  "openai",
+		Model:     model,
+		Path:      logPath,
+	}
+	if s.Tap != nil {
+		s.Tap.Publish(tap.InferenceEvent{
+			Type:      "request",
+			AgentID:   agent.ID,
+			AgentName: agent.Name,
+			Provider:  "openai",
+			Model:     model,
+			Method:    r.Method,
+			Path:      logPath,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
 	client := &http.Client{Timeout: 5 * time.Minute}
 
 	makeReq := func(body []byte) (*http.Response, error) {
@@ -991,7 +1211,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(upstreamCT, "text/event-stream") || shouldUseCodex {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.streaming",
 			fmt.Sprintf(`inference/openai model=%s latencyMs=%d`, model, latencyMs))
-		streamInferenceResponse(w, resp.Body, latencyMs, "openai")
+		streamInferenceResponse(w, resp.Body, latencyMs, "openai", s.Tap, tapCtxOpenAI)
 		return
 	}
 
@@ -999,6 +1219,18 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	resp.Body.Close()
 	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.complete",
 		fmt.Sprintf(`inference/openai model=%s latencyMs=%d`, model, latencyMs))
+
+	if s.Tap != nil {
+		s.Tap.Publish(tap.InferenceEvent{
+			Type:      "complete",
+			AgentID:   agent.ID,
+			AgentName: agent.Name,
+			Provider:  "openai",
+			Model:     model,
+			Path:      logPath,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
 
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {

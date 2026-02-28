@@ -15,6 +15,7 @@ import (
 	"github.com/siofra-seksbot/botster-broker-go/internal/config"
 	"github.com/siofra-seksbot/botster-broker-go/internal/db"
 	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
+	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
 )
 
 func main() {
@@ -56,11 +57,16 @@ func main() {
 	go wsHub.Run()
 	log.Println("WebSocket hub started")
 
+	// Create inference tap (pub/sub for dashboard SSE)
+	inferenceTap := tap.New()
+	log.Println("Inference tap initialized")
+
 	// Create API server
 	srv := &api.Server{
 		DB:        database,
 		MasterKey: cfg.MasterKey,
 		Hub:       wsHub,
+		Tap:       inferenceTap,
 	}
 
 	// Build router

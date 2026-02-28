@@ -2,24 +2,33 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
 	"github.com/siofra-seksbot/botster-broker-go/internal/db"
 	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
+	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
 )
 
 // Server holds dependencies for API handlers.
 type Server struct {
-	Hub *hub.Hub
+	Hub       *hub.Hub
 	DB        *db.DB
 	MasterKey string
+	Tap       *tap.InferenceTap
 }
+
+// scopedCapsKey is the context key for scoped token capabilities.
+type contextKey int
+
+const scopedCapsKey contextKey = iota
 
 // NewRouter creates the chi router with all API routes.
 func (s *Server) NewRouter() chi.Router {
@@ -32,6 +41,7 @@ func (s *Server) NewRouter() chi.Router {
 	r.Route("/v1", func(r chi.Router) {
 		r.Post("/secrets/get", s.handleSecretsGet)
 		r.Post("/secrets/list", s.handleSecretsList)
+		r.Post("/tokens/scoped", s.handleCreateScopedToken)
 		r.Get("/actuators", s.handleActuatorsList)
 		r.Post("/actuator/select", s.handleActuatorSelect)
 		r.Get("/actuator/selected", s.handleActuatorSelected)
@@ -50,6 +60,8 @@ func (s *Server) NewRouter() chi.Router {
 
 	// Account/management API
 	r.Route("/api", func(r chi.Router) {
+		// Inference tap SSE stream (dashboard)
+		r.Get("/inference/stream", s.handleInferenceStream)
 		// Existing (root only — create account)
 		r.Post("/accounts", s.handleCreateAccount)
 		r.Get("/agents", s.handleListAgents)
@@ -110,9 +122,9 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 
 // extractToken gets the bearer token from Authorization header or X-API-Key.
 func extractToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ")
+	a := r.Header.Get("Authorization")
+	if strings.HasPrefix(a, "Bearer ") {
+		return strings.TrimPrefix(a, "Bearer ")
 	}
 	if key := r.Header.Get("X-API-Key"); key != "" {
 		return key
@@ -120,13 +132,83 @@ func extractToken(r *http.Request) string {
 	return ""
 }
 
+// withScopedCaps stores scoped token capabilities in the request context.
+func withScopedCaps(r *http.Request, caps []string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), scopedCapsKey, caps))
+}
+
+// getScopedCaps retrieves scoped capabilities from context.
+// Returns nil if the request was not made with a scoped token (full access).
+func getScopedCaps(r *http.Request) []string {
+	v := r.Context().Value(scopedCapsKey)
+	if v == nil {
+		return nil
+	}
+	caps, _ := v.([]string)
+	return caps
+}
+
+// checkScopedCapability returns true if the request is allowed to use requiredCap.
+// If the request carries no scoped caps (regular agent token), always returns true.
+func checkScopedCapability(r *http.Request, requiredCap string) bool {
+	caps := getScopedCaps(r)
+	if caps == nil {
+		return true // not a scoped token — full access
+	}
+	for _, c := range caps {
+		if c == requiredCap || c == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// secretNameToCapability maps a secret name to its required scoped capability.
+func secretNameToCapability(name string) string {
+	upper := strings.ToUpper(name)
+	switch {
+	case strings.Contains(upper, "ANTHROPIC") || strings.Contains(upper, "CLAUDE"):
+		return "anthropic"
+	case strings.Contains(upper, "OPENAI"):
+		return "openai"
+	case strings.Contains(upper, "BRAVE"):
+		return "brave"
+	default:
+		return ""
+	}
+}
+
 // authenticateAgent extracts token and looks up the agent.
+// For scoped tokens, it writes caps into the request context pointer so callers
+// can use checkScopedCapability(r, ...) after this call.
+// The caller must pass &r (pointer to the local *http.Request variable) so the
+// updated context is visible in the same handler scope.
 func (s *Server) authenticateAgent(w http.ResponseWriter, r *http.Request) *db.Agent {
 	token := extractToken(r)
 	if token == "" {
 		jsonError(w, 401, "Missing auth token")
 		return nil
 	}
+
+	// Handle scoped tokens — verify HMAC, inject caps into ctx
+	if auth.IsScopedToken(token) {
+		payload, err := auth.VerifyScopedToken(token, s.MasterKey)
+		if err != nil {
+			jsonError(w, 401, "Invalid or expired scoped token: "+err.Error())
+			return nil
+		}
+		agent, err := s.DB.GetAgentByID(payload.AgentID)
+		if err != nil || agent == nil {
+			jsonError(w, 401, "Scoped token references unknown agent")
+			return nil
+		}
+		// Inject scoped caps into the request context.
+		// We set a value on the *existing* context; callers reading r.Context() will see it.
+		enriched := withScopedCaps(r, payload.Caps)
+		*r = *enriched
+		return agent
+	}
+
 	agent, err := s.DB.GetAgentByToken(token)
 	if err != nil {
 		log.Printf("Auth error: %v", err)
@@ -164,6 +246,14 @@ func (s *Server) handleSecretsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check scoped capability for this secret
+	if cap := secretNameToCapability(body.Name); cap != "" {
+		if !checkScopedCapability(r, cap) {
+			jsonError(w, 403, "Scoped token does not have capability: "+cap)
+			return
+		}
+	}
+
 	value, err := s.DB.GetSecret(agent.AccountID, body.Name, s.MasterKey)
 	if err != nil {
 		jsonError(w, 404, "Secret not found or decrypt failed")
@@ -186,14 +276,22 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return names only, not values
-	names := make([]map[string]string, len(secrets))
-	for i, sec := range secrets {
-		names[i] = map[string]string{
+	// Return names only, not values.
+	// For scoped tokens, filter to secrets matching their capabilities.
+	caps := getScopedCaps(r)
+	names := make([]map[string]string, 0, len(secrets))
+	for _, sec := range secrets {
+		if caps != nil {
+			required := secretNameToCapability(sec.Name)
+			if required != "" && !checkScopedCapability(r, required) {
+				continue // hide secrets outside scope
+			}
+		}
+		names = append(names, map[string]string{
 			"id":       sec.ID,
 			"name":     sec.Name,
 			"provider": sec.Provider,
-		}
+		})
 	}
 	jsonResponse(w, 200, names)
 }
