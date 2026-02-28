@@ -257,3 +257,37 @@ func (db *DB) UpdateSecret(accountID, name, newValue, masterKey string) error {
 	}
 	return nil
 }
+
+// GetSecretByID retrieves a secret by its ID.
+func (db *DB) GetSecretByID(id string) (*Secret, error) {
+	s := &Secret{}
+	err := db.QueryRow(`
+		SELECT id, account_id, name, provider, encrypted_value, metadata, created_at, updated_at
+		FROM secrets WHERE id = ?
+	`, id).Scan(&s.ID, &s.AccountID, &s.Name, &s.Provider, &s.EncryptedValue, &s.Metadata, &s.CreatedAt, &s.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query secret by id: %w", err)
+	}
+	return s, nil
+}
+
+// UpdateSecretByID updates a secret's encrypted value by ID.
+func (db *DB) UpdateSecretByID(id, newValue, masterKey string) error {
+	encrypted, err := encrypt([]byte(newValue), masterKey)
+	if err != nil {
+		return fmt.Errorf("encrypt secret: %w", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := db.Exec(`UPDATE secrets SET encrypted_value = ?, updated_at = ? WHERE id = ?`, encrypted, now, id)
+	if err != nil {
+		return fmt.Errorf("update secret by id: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("secret %q not found", id)
+	}
+	return nil
+}

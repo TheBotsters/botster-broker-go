@@ -44,13 +44,42 @@ func (s *Server) NewRouter() chi.Router {
 		r.Post("/proxy/anthropic/*", s.handleProxyAnthropic)
 		r.Post("/proxy/openai/*", s.handleProxyOpenAI)
 		r.Post("/web/search", s.handleWebSearch)
+		// Notify (root only)
+		r.Post("/notify/{agentName}", s.handleNotify)
 	})
 
 	// Account/management API
 	r.Route("/api", func(r chi.Router) {
+		// Existing (root only — create account)
 		r.Post("/accounts", s.handleCreateAccount)
 		r.Get("/agents", s.handleListAgents)
 		r.Post("/agents", s.handleCreateAgent)
+
+		// Account CRUD (root only)
+		r.Get("/accounts", s.handleListAccounts)
+		r.Get("/accounts/{id}", s.handleGetAccount)
+		r.Patch("/accounts/{id}", s.handleUpdateAccount)
+		r.Delete("/accounts/{id}", s.handleDeleteAccount)
+
+		// Agent management under account
+		r.Post("/accounts/{id}/agents", s.handleCreateAgentForAccount)
+		r.Get("/accounts/{id}/agents", s.handleListAgentsForAccount)
+		r.Delete("/accounts/{id}/agents/{agentId}", s.handleDeleteAgentFromAccount)
+		r.Patch("/accounts/{id}/agents/{agentId}", s.handleUpdateAgentInAccount)
+		r.Post("/accounts/{id}/agents/{agentId}/rotate-token", s.handleRotateAgentToken)
+
+		// Actuator management (root or admin scoped)
+		r.Post("/agents/{agentId}/actuators", s.handleCreateActuatorForAgent)
+		r.Delete("/actuators/{id}", s.handleDeleteActuator)
+
+		// Secret management (root or admin scoped)
+		r.Post("/secrets", s.handleCreateSecret)
+		r.Put("/secrets/{id}", s.handleUpdateSecret)
+		r.Post("/secrets/{id}/grant", s.handleGrantSecretAccess)
+		r.Delete("/secrets/{id}/grant/{agentId}", s.handleRevokeSecretAccess)
+
+		// Audit log (root or admin scoped)
+		r.Get("/audit", s.handleListAudit)
 	})
 
 	return r

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS agents (
     encrypted_token TEXT,
     safe INTEGER NOT NULL DEFAULT 0,
     selected_actuator_id TEXT,
+    role TEXT NOT NULL DEFAULT 'agent',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(account_id, name)
 );

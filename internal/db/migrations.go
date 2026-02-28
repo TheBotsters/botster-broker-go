@@ -114,6 +114,21 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version:     2,
+		description: "Add role column to agents table",
+		sql: `
+			ALTER TABLE agents ADD COLUMN role TEXT NOT NULL DEFAULT 'agent';
+		`,
+	},
+	{
+		version:     3,
+		description: "Add retention_months setting to broker_settings",
+		sql: `
+			INSERT OR IGNORE INTO broker_settings (key, value, updated_at)
+			VALUES ('retention_months', '6', datetime('now'));
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.

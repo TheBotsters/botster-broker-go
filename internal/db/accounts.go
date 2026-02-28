@@ -79,3 +79,53 @@ func GenerateSessionToken() string {
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// ListAccounts returns all accounts.
+func (db *DB) ListAccounts() ([]*Account, error) {
+	rows, err := db.Query(`SELECT id, email, password_hash, created_at FROM accounts ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("query accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []*Account
+	for rows.Next() {
+		a := &Account{}
+		if err := rows.Scan(&a.ID, &a.Email, &a.PasswordHash, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, rows.Err()
+}
+
+// UpdateAccount updates mutable account fields. Only non-nil keys in updates are modified.
+func (db *DB) UpdateAccount(id string, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	setClauses := ""
+	args := []interface{}{}
+	for k, v := range updates {
+		if setClauses != "" {
+			setClauses += ", "
+		}
+		setClauses += k + " = ?"
+		args = append(args, v)
+	}
+	args = append(args, id)
+	_, err := db.Exec("UPDATE accounts SET "+setClauses+" WHERE id = ?", args...)
+	if err != nil {
+		return fmt.Errorf("update account: %w", err)
+	}
+	return nil
+}
+
+// DeleteAccount removes an account and all cascaded data.
+func (db *DB) DeleteAccount(id string) error {
+	_, err := db.Exec(`DELETE FROM accounts WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	return nil
+}

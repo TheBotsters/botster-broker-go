@@ -272,6 +272,14 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	h.registerCh <- conn
 
+	// Deliver buffered wake messages for brain connections
+	if conn.Role == "brain" {
+		// Small yield to let registerCh be processed before we write to sendCh
+		go func() {
+			h.DeliverBufferedWakes(conn.AgentID, conn)
+		}()
+	}
+
 	// Start writer goroutine
 	go conn.writePump(ctx)
 
@@ -380,4 +388,51 @@ func (h *Hub) SendCommand(agentID, accountID string, msg WSMessage, timeout time
 		h.pendingMu.Unlock()
 		return nil, nil // timeout
 	}
+}
+
+// GetBrainConnection returns the brain (agent) WebSocket connection for the given agentID,
+// or nil if the agent is not currently connected.
+func (h *Hub) GetBrainConnection(agentID string) *Connection {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.brains[agentID]
+}
+
+// BufferWake stores a wake message for delivery when the agent's brain connects.
+// The message is indexed by agentID (not actuatorID, as brains connect via agent token).
+func (h *Hub) BufferWake(agentID, text, source, ts string) {
+	msg := WSMessage{
+		Type: TypeWake,
+		Text: text,
+	}
+	h.mu.Lock()
+	h.wakeBuffers[agentID] = append(h.wakeBuffers[agentID], msg)
+	h.mu.Unlock()
+	log.Printf("[hub] Buffered wake for agent %s (source=%s, ts=%s)", agentID, source, ts)
+}
+
+// DeliverBufferedWakes sends any buffered wake messages to a newly-connected brain.
+// Called internally when a brain_hello is received and registers.
+func (h *Hub) DeliverBufferedWakes(agentID string, conn *Connection) {
+	h.mu.Lock()
+	msgs, ok := h.wakeBuffers[agentID]
+	if ok {
+		delete(h.wakeBuffers, agentID)
+	}
+	h.mu.Unlock()
+
+	if !ok {
+		return
+	}
+	for _, msg := range msgs {
+		data, _ := json.Marshal(msg)
+		conn.sendCh <- data
+	}
+	log.Printf("[hub] Delivered %d buffered wake(s) to brain agent %s", len(msgs), agentID)
+}
+
+// SendCh returns the connection's send channel for direct message delivery.
+// Used by external callers (e.g., notify handler) to push messages.
+func (c *Connection) SendCh() chan []byte {
+	return c.sendCh
 }

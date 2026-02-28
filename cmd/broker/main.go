@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/siofra-seksbot/botster-broker-go/internal/api"
 	"github.com/siofra-seksbot/botster-broker-go/internal/config"
@@ -35,6 +36,20 @@ func main() {
 
 	version, _ := database.SchemaVersion()
 	log.Printf("Schema version: %d", version)
+
+	// Prune old audit log entries based on retention_months setting
+	retentionStr, _ := database.GetSetting("retention_months")
+	retentionMonths := 6
+	if retentionStr != "" {
+		if n, err := strconv.Atoi(retentionStr); err == nil && n > 0 {
+			retentionMonths = n
+		}
+	}
+	if pruned, err := database.PruneAuditLog(retentionMonths); err != nil {
+		log.Printf("Audit log prune error: %v", err)
+	} else if pruned > 0 {
+		log.Printf("Pruned %d audit log entries older than %d months", pruned, retentionMonths)
+	}
 
 	// Create WebSocket hub
 	wsHub := hub.New(database, cfg.MasterKey)

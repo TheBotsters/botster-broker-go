@@ -199,3 +199,38 @@ func (db *DB) UpdateActuatorStatus(id, status string) error {
 	`, status, time.Now().UTC().Format(time.RFC3339), id)
 	return err
 }
+
+// DeleteActuator removes an actuator by ID.
+func (db *DB) DeleteActuator(id string) error {
+	_, err := db.Exec(`DELETE FROM actuators WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete actuator: %w", err)
+	}
+	return nil
+}
+
+// ListActuatorsByAgent returns all actuators assigned to a specific agent.
+func (db *DB) ListActuatorsByAgent(agentID string) ([]*Actuator, error) {
+	rows, err := db.Query(`
+		SELECT act.id, act.account_id, act.name, act.type, act.status, act.token_hash,
+		       act.encrypted_token, act.enabled, act.last_seen_at, act.created_at
+		FROM actuators act
+		JOIN agent_actuator_assignments aaa ON act.id = aaa.actuator_id
+		WHERE aaa.agent_id = ?
+		ORDER BY act.created_at
+	`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("query actuators by agent: %w", err)
+	}
+	defer rows.Close()
+
+	var actuators []*Actuator
+	for rows.Next() {
+		a := &Actuator{}
+		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan actuator: %w", err)
+		}
+		actuators = append(actuators, a)
+	}
+	return actuators, rows.Err()
+}
