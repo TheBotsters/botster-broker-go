@@ -234,3 +234,26 @@ func (db *DB) AgentHasSecretAccess(agentID, secretName string) (bool, error) {
 	`, agentID, secretName).Scan(&count)
 	return count > 0, err
 }
+
+// UpdateSecret updates an existing secret's encrypted value.
+// Used to persist refreshed OAuth tokens.
+func (db *DB) UpdateSecret(accountID, name, newValue, masterKey string) error {
+	encrypted, err := encrypt([]byte(newValue), masterKey)
+	if err != nil {
+		return fmt.Errorf("encrypt secret: %w", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := db.Exec(`
+		UPDATE secrets SET encrypted_value = ?, updated_at = ?
+		WHERE account_id = ? AND name = ?
+	`, encrypted, now, accountID, name)
+	if err != nil {
+		return fmt.Errorf("update secret: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("secret %q not found for account %q", name, accountID)
+	}
+	return nil
+}

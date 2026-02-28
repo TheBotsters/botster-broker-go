@@ -38,6 +38,12 @@ func (s *Server) NewRouter() chi.Router {
 		r.Post("/command", s.handleCommand)
 		r.Post("/agents/{id}/safe", s.handleAgentSafeToggle)
 		r.Post("/dashboard/safe", s.handleGlobalSafeToggle)
+		// Inference proxy routes
+		r.Post("/inference", s.handleInference)
+		r.Get("/inference/providers", s.handleInferenceProviders)
+		r.Post("/proxy/anthropic/*", s.handleProxyAnthropic)
+		r.Post("/proxy/openai/*", s.handleProxyOpenAI)
+		r.Post("/web/search", s.handleWebSearch)
 	})
 
 	// Account/management API
