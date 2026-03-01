@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Botster Broker — Chat</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+    h1 { color: #58a6ff; font-size: 1.4em; margin-bottom: 4px; }
+    .subtitle { color: #8b949e; font-size: 0.85em; margin-bottom: 24px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .agent-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; cursor: pointer; transition: border-color 0.2s; text-decoration: none; color: inherit; display: block; }
+    .agent-card:hover { border-color: #58a6ff; }
+    .agent-card .name { color: #58a6ff; font-size: 1.2em; font-weight: bold; margin-bottom: 4px; }
+    .agent-card .status { font-size: 0.85em; color: #8b949e; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: bold; }
+    .badge.ready { background: #238636; color: white; }
+    .badge.no-gateway { background: #484f58; color: #c9d1d9; }
+    button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85em; }
+    button:hover { background: #30363d; }
+    .empty { color: #8b949e; padding: 40px; text-align: center; }
+    .user-info { color: #8b949e; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>💬 Chat</h1>
+      <div class="subtitle">Select an agent to chat with</div>
+    </div>
+    <div>
+      <span class="user-info" id="userInfo"></span>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </div>
+  <div id="agents" class="agents">
+    <div class="empty">Loading...</div>
+  </div>
+
+  <script>
+    async function init() {
+      // Check auth
+      const authRes = await fetch('/auth/status');
+      const auth = await authRes.json();
+      if (!auth.authenticated) {
+        window.location.href = '/login.html';
+        return;
+      }
+      document.getElementById('userInfo').textContent = auth.email;
+
+      // Load agents
+      const res = await fetch('/chat/api/agents');
+      if (res.status === 401) {
+        window.location.href = '/login.html';
+        return;
+      }
+      const agents = await res.json();
+      const container = document.getElementById('agents');
+
+      if (!agents || agents.length === 0) {
+        container.innerHTML = '<div class="empty">No agents found for your account.</div>';
+        return;
+      }
+
+      container.innerHTML = agents.map(a => `
+        <a class="agent-card" href="/chat/${a.name}/" ${!a.hasGateway ? 'style="opacity:0.5;pointer-events:none"' : ''}>
+          <div class="name">${a.name}</div>
+          <div class="status">
+            ${a.hasGateway
+              ? '<span class="badge ready">Gateway Ready</span>'
+              : '<span class="badge no-gateway">No Gateway</span>'}
+          </div>
+        </a>
+      `).join('');
+    }
+
+    async function logout() {
+      await fetch('/auth/logout', {method: 'POST'});
+      window.location.href = '/login.html';
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -19,6 +19,8 @@ import (
 
 // Server holds dependencies for API handlers.
 type Server struct {
+	Sessions *SessionStore
+	Gateways map[string]GatewayConfig
 	Hub       *hub.Hub
 	DB        *db.DB
 	MasterKey string
@@ -105,6 +107,25 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/groups/{id}/agents", s.handleListGroupAgents)
 	})
 
+
+	// Login page redirect
+	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/login.html")
+	})
+
+	// Auth routes (no auth required)
+	r.Post("/auth/login", s.handleLogin)
+	r.Post("/auth/logout", s.handleLogout)
+	r.Get("/auth/status", s.handleAuthStatus)
+
+	// Chat routes (session auth required)
+	r.Route("/chat", func(r chi.Router) {
+		r.Use(s.requireAuth)
+		r.Get("/", s.handleChatIndex)
+		r.Get("/api/agents", s.handleChatAgentList)
+		r.Get("/{agent}/ws", s.handleChatProxy)
+		r.Get("/{agent}/", s.handleChatPage)
+	})
 	return r
 }
 

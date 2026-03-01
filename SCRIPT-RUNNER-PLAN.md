@@ -51,13 +51,28 @@ echo "Done."
 - Brain controls only the script *name*, never path, args, or execution context
 - Whitelist is config on the machine, written/reviewed by humans
 - All invocations audited via broker with agent identity
-- Suggest running as a separate user with narrow sudo rules (not general actuator user)
+- Runs as a dedicated user with narrow sudo rules (not the general actuator user)
 
 ## Implementation Location
 
-Likely a new capability in `botster-actuator-2`, or a standalone lightweight
-actuator specifically for privileged ops (cleaner separation).
+**Standalone lightweight actuator** — decided by Peter 2026-03-01. Not part of
+`botster-actuator-2`. Cleaner privilege separation: its own user, its own sudo
+rules, its own broker registration.
+
+## Broker vs Actuator Split
+
+- **Broker changes: minimal to none.** The broker routes capability payloads
+  generically. `script-runner` looks like any other capability message — no
+  broker surgery needed. Optional: schema validation for known capability names,
+  but not required.
+- **Actuator changes: all of it.** The work is entirely in the new standalone actuator:
+  1. Add `script-runner` capability handler
+  2. Parse TOML whitelist config
+  3. Hard-reject unknown script names
+  4. Execute script, return stdout/stderr
+  5. Explicit local audit logging (broker message trail provides implicit audit,
+     but local logs add value)
 
 ## Status
 
-Deferred — 2026-02-27. Resume after current priorities.
+Assigned to FootGun — 2026-03-01. Originally deferred 2026-02-27.

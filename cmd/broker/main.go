@@ -5,10 +5,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 	"strconv"
 
 	"github.com/siofra-seksbot/botster-broker-go/internal/api"
@@ -61,12 +63,21 @@ func main() {
 	inferenceTap := tap.New()
 	log.Println("Inference tap initialized")
 
+
+	// Initialize session store (24h TTL)
+	sessions := api.NewSessionStore(24 * time.Hour)
+
+	// Load gateway configs from BROKER_GATEWAYS env or file
+	gateways := loadGateways()
+
 	// Create API server
 	srv := &api.Server{
 		DB:        database,
 		MasterKey: cfg.MasterKey,
 		Hub:       wsHub,
 		Tap:       inferenceTap,
+		Sessions: sessions,
+		Gateways: gateways,
 	}
 
 	// Build router
@@ -87,4 +98,38 @@ func main() {
 	if err := http.ListenAndServe(addr, router); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// loadGateways reads gateway configs from BROKER_GATEWAYS env var (JSON)
+// or /etc/botster-broker/gateways.json file.
+// Format: {"nira": {"url": "ws://127.0.0.1:18786", "token": "..."}, ...}
+func loadGateways() map[string]api.GatewayConfig {
+	gateways := make(map[string]api.GatewayConfig)
+
+	// Try env var first
+	if raw := os.Getenv("BROKER_GATEWAYS"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &gateways); err != nil {
+			log.Printf("Warning: BROKER_GATEWAYS parse error: %v", err)
+		} else {
+			log.Printf("Loaded %d gateway configs from env", len(gateways))
+			return gateways
+		}
+	}
+
+	// Try config file
+	for _, path := range []string{"/etc/botster-broker/gateways.json", "gateways.json"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if err := json.Unmarshal(data, &gateways); err != nil {
+			log.Printf("Warning: %s parse error: %v", path, err)
+			continue
+		}
+		log.Printf("Loaded %d gateway configs from %s", len(gateways), path)
+		return gateways
+	}
+
+	log.Println("No gateway configs found (chat proxy disabled)")
+	return gateways
 }

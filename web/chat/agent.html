@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+    .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    .header .name { color: #58a6ff; font-weight: bold; font-size: 1.1em; }
+    .header .status { font-size: 0.8em; margin-left: 8px; }
+    .header .status.connected { color: #238636; }
+    .header .status.disconnected { color: #da3633; }
+    .header .status.connecting { color: #d29922; }
+    .header a { color: #8b949e; text-decoration: none; font-size: 0.85em; }
+    .header a:hover { color: #c9d1d9; }
+    .messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
+    .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 0.95em; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+    .msg.user { align-self: flex-end; background: #1f6feb; color: white; border-bottom-right-radius: 4px; }
+    .msg.assistant { align-self: flex-start; background: #161b22; border: 1px solid #30363d; border-bottom-left-radius: 4px; }
+    .msg.system { align-self: center; color: #8b949e; font-size: 0.8em; font-style: italic; background: none; }
+    .msg .meta { font-size: 0.7em; color: #8b949e; margin-top: 4px; }
+    .msg.user .meta { color: rgba(255,255,255,0.6); }
+    .input-area { background: #161b22; border-top: 1px solid #30363d; padding: 12px 20px; display: flex; gap: 8px; flex-shrink: 0; }
+    .input-area textarea { flex: 1; padding: 10px 14px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; color: #c9d1d9; font-size: 1em; font-family: inherit; resize: none; outline: none; min-height: 44px; max-height: 120px; }
+    .input-area textarea:focus { border-color: #58a6ff; }
+    .input-area button { padding: 10px 20px; background: #238636; color: white; border: none; border-radius: 8px; font-size: 1em; cursor: pointer; font-weight: bold; white-space: nowrap; }
+    .input-area button:hover { background: #2ea043; }
+    .input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .typing { align-self: flex-start; color: #8b949e; font-size: 0.85em; padding: 4px 14px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <a href="/chat/">← Back</a>
+      <span class="name" id="agentName"></span>
+      <span class="status connecting" id="connStatus">connecting...</span>
+    </div>
+  </div>
+  <div class="messages" id="messages"></div>
+  <div class="input-area">
+    <textarea id="input" rows="1" placeholder="Type a message..." autofocus></textarea>
+    <button id="sendBtn" onclick="sendMessage()">Send</button>
+  </div>
+
+  <script>
+    const agentName = window.location.pathname.split('/chat/')[1]?.replace(/\/+$/, '');
+    document.getElementById('agentName').textContent = agentName;
+    document.title = `Chat — ${agentName}`;
+
+    const messagesEl = document.getElementById('messages');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('sendBtn');
+    const statusEl = document.getElementById('connStatus');
+
+    let ws = null;
+    let reqId = 0;
+    let pendingCallbacks = {};
+    let reconnectDelay = 1000;
+    let connected = false;
+
+    function genId() { return `req-${++reqId}-${Date.now()}`; }
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = 'status ' + cls;
+    }
+
+    function addMessage(role, text) {
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+
+      // Simple markdown: **bold**, `code`, ```blocks```
+      let html = text
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/```([\s\S]*?)```/g, '<pre style="background:#0d1117;padding:8px;border-radius:4px;overflow-x:auto;margin:4px 0">$1</pre>')
+        .replace(/`([^`]+)`/g, '<code style="background:#0d1117;padding:2px 4px;border-radius:3px">$1</code>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      div.innerHTML = html;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function rpc(method, params) {
+      return new Promise((resolve, reject) => {
+        const id = genId();
+        pendingCallbacks[id] = {resolve, reject};
+        ws.send(JSON.stringify({type: 'req', id, method, params}));
+        setTimeout(() => {
+          if (pendingCallbacks[id]) {
+            delete pendingCallbacks[id];
+            reject(new Error('timeout'));
+          }
+        }, 120000);
+      });
+    }
+
+    async function connect() {
+      setStatus('connecting...', 'connecting');
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/chat/${agentName}/ws`);
+
+      ws.onopen = async () => {
+        setStatus('connected', 'connected');
+        connected = true;
+        reconnectDelay = 1000;
+
+        // Load recent history
+        try {
+          const res = await rpc('chat.history', {sessionKey: 'main', limit: 50});
+          if (res?.payload?.messages) {
+            messagesEl.innerHTML = '';
+            for (const msg of res.payload.messages) {
+              const role = msg.role === 'user' ? 'user' : msg.role === 'assistant' ? 'assistant' : 'system';
+              const text = typeof msg.content === 'string' ? msg.content :
+                Array.isArray(msg.content) ? msg.content.filter(c => c.type === 'text').map(c => c.text).join('\n') : '';
+              if (text) addMessage(role, text);
+            }
+          }
+        } catch(e) {
+          console.log('History load error:', e);
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          // Handle RPC responses
+          if (msg.type === 'res' && msg.id && pendingCallbacks[msg.id]) {
+            pendingCallbacks[msg.id].resolve(msg);
+            delete pendingCallbacks[msg.id];
+            return;
+          }
+
+          // Handle push events (agent responses, typing indicators, etc.)
+          if (msg.type === 'event') {
+            if (msg.event === 'agent.reply' || msg.event === 'session.message') {
+              const text = msg.data?.content || msg.data?.text || '';
+              if (text) addMessage('assistant', text);
+            }
+          }
+
+          // Handle streamed text chunks
+          if (msg.type === 'push' && msg.method === 'chat.delta') {
+            // TODO: streaming support
+          }
+        } catch(e) {
+          console.log('Parse error:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        connected = false;
+        setStatus('disconnected', 'disconnected');
+        // Auto-reconnect
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      };
+
+      ws.onerror = () => {
+        setStatus('error', 'disconnected');
+      };
+    }
+
+    async function sendMessage() {
+      const text = inputEl.value.trim();
+      if (!text || !connected) return;
+
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+      addMessage('user', text);
+      sendBtn.disabled = true;
+
+      try {
+        await rpc('chat.send', {
+          sessionKey: 'main',
+          message: text,
+          idempotencyKey: genId()
+        });
+      } catch(e) {
+        addMessage('system', 'Failed to send message');
+      }
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+
+    // Enter to send, Shift+Enter for newline
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // Auto-resize textarea
+    inputEl.addEventListener('input', () => {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+    });
+
+    connect();
+  </script>
+</body>
+</html>
