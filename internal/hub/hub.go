@@ -21,7 +21,7 @@ import (
 const (
 	TypeActuatorHello  = "actuator_hello"
 	TypeBrainHello     = "brain_hello"
-	TypeCommandRequest = "command_request"
+	TypeCommandRequest = "command_delivery"
 	TypeCommandResult  = "command_result"
 	TypeWake           = "wake"
 	TypeSafeModeError  = "safe_mode"
@@ -223,7 +223,37 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Read the hello message to identify the connection
+	conn := &Connection{
+		ws:     ws,
+		sendCh: make(chan []byte, 64),
+		hub:    h,
+	}
+
+	// Legacy actuator protocol: auth via query params (?token=...&role=actuator&actuator_id=...)
+	q := r.URL.Query()
+	if q.Get("role") == "actuator" {
+		token := q.Get("token")
+		actuator, err := h.db.GetActuatorByToken(token)
+		if err != nil || actuator == nil {
+			log.Printf("[hub] Actuator query-param auth failed for id=%s", q.Get("actuator_id"))
+			ws.Close(websocket.StatusPolicyViolation, "Invalid actuator token")
+			return
+		}
+		conn.ID = actuator.ID
+		conn.Role = "actuator"
+		conn.ActuatorID = actuator.ID
+		conn.AccountID = actuator.AccountID
+		h.registerCh <- conn
+		log.Printf("[hub] Actuator registered (legacy proto): id=%s name=%s", actuator.ID, actuator.Name)
+		h.db.UpdateActuatorStatus(actuator.ID, "online")
+		go conn.writePump(ctx)
+		conn.readPump(ctx)
+		h.unregisterCh <- conn
+		close(conn.sendCh)
+		return
+	}
+
+	// Modern protocol: read hello message
 	_, data, err := ws.Read(ctx)
 	if err != nil {
 		ws.Close(websocket.StatusProtocolError, "Expected hello message")
@@ -234,12 +264,6 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(data, &hello); err != nil {
 		ws.Close(websocket.StatusProtocolError, "Invalid hello message")
 		return
-	}
-
-	conn := &Connection{
-		ws:     ws,
-		sendCh: make(chan []byte, 64),
-		hub:    h,
 	}
 
 	switch hello.Type {
