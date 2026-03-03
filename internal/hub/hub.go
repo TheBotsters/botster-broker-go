@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -459,4 +460,60 @@ func (h *Hub) DeliverBufferedWakes(agentID string, conn *Connection) {
 // Used by external callers (e.g., notify handler) to push messages.
 func (c *Connection) SendCh() chan []byte {
 	return c.sendCh
+}
+
+// RequireBrokerToken validates a broker token via Authorization: Bearer,
+// X-Broker-Token, or X-API-Key.
+func (h *Hub) RequireBrokerToken(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			provided := ""
+			if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
+				provided = strings.TrimPrefix(a, "Bearer ")
+			}
+			if provided == "" {
+				provided = r.Header.Get("X-Broker-Token")
+			}
+			if provided == "" {
+				provided = r.Header.Get("X-API-Key")
+			}
+			if provided == "" || provided != token {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// HandleSecretGet handles POST /v1/secrets/get for broker-owned in-memory secrets.
+func (h *Hub) HandleSecretGet(store *SecretsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Key string `json:"key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
+			return
+		}
+
+		value, ok := store.Get(req.Key)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "secret not found"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"value":  value,
+			"source": "broker",
+		})
+	}
 }

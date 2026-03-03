@@ -83,6 +83,19 @@ func main() {
 	// Build router
 	router := srv.NewRouter()
 
+	// Broker-owned in-memory secret store (temporary bootstrap values)
+	brokerSecrets := hub.NewSecretsStore(map[string]string{
+		"openai:embedding": "sk-embedding-test-key",
+		"openai:chat":      "sk-chat-test-key",
+		"anthropic:default": "sk-ant-test-key",
+	})
+	brokerToken := cfg.AdminKey
+	if brokerToken == "" {
+		// Fallback for local/dev where only MASTER_KEY is set
+		brokerToken = cfg.MasterKey
+	}
+	router.With(wsHub.RequireBrokerToken(brokerToken)).Post("/v1/secrets/get", wsHub.HandleSecretGet(brokerSecrets))
+
 	// WebSocket endpoint
 	router.HandleFunc("/ws", wsHub.HandleWebSocket)
 
