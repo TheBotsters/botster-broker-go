@@ -243,3 +243,22 @@ func TestGetSecretForAgentACLPolicy(t *testing.T) {
 		t.Fatalf("agent-2 should be allowed after grant: %v", err)
 	}
 }
+
+func TestGetSecretForAgentWrongMasterKeyLooksLikeAccessDenied(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("key-mismatch@example.com", "pass")
+	agent, _, _ := db.CreateAgent(acc.ID, "agent")
+	secret, err := db.CreateSecret(acc.ID, "OPENAI_API_KEY", "openai", "sk-test", testMasterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.GrantSecretAccess(secret.ID, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	wrongKey := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	if _, err := db.GetSecretForAgent(acc.ID, agent.ID, secret.Name, wrongKey); err == nil {
+		t.Fatalf("expected failure with wrong master key")
+	}
+}

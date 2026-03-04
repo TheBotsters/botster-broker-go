@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"time"
 )
 
@@ -83,8 +84,11 @@ func decrypt(encodedCiphertext, hexKey string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode key: %w", err)
 	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("key must be 32 bytes (got %d)", len(key))
+	}
 
-	ciphertext, err := decodeCiphertext(encodedCiphertext)
+	combined, err := decodeCiphertext(encodedCiphertext)
 	if err != nil {
 		return nil, err
 	}
@@ -99,13 +103,15 @@ func decrypt(encodedCiphertext, hexKey string) ([]byte, error) {
 		return nil, fmt.Errorf("new gcm: %w", err)
 	}
 
+	// Format (Node + Go): nonce/iv (12) + ciphertext + authTag (16), then encoded.
 	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
+	tagSize := gcm.Overhead()
+	if len(combined) < nonceSize+tagSize {
 		return nil, fmt.Errorf("ciphertext too short")
 	}
 
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	nonce, sealed := combined[:nonceSize], combined[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, sealed, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
@@ -171,6 +177,7 @@ func (db *DB) GetSecretForAgent(accountID, agentID, name, masterKey string) (str
 		return "", fmt.Errorf("query agent scope: %w", err)
 	}
 	if agentCount == 0 {
+		log.Printf("[secret_acl] deny agent scope: account_id=%s agent_id=%s secret_name=%s", accountID, agentID, name)
 		return "", fmt.Errorf("secret %q: access denied", name)
 	}
 
@@ -182,6 +189,7 @@ func (db *DB) GetSecretForAgent(accountID, agentID, name, masterKey string) (str
 		SELECT id, encrypted_value FROM secrets WHERE account_id = ? AND name = ?
 	`, accountID, name).Scan(&secretID, &encrypted)
 	if err == sql.ErrNoRows {
+		log.Printf("[secret_acl] secret not found: account_id=%s agent_id=%s secret_name=%s", accountID, agentID, name)
 		return "", fmt.Errorf("secret %q not found", name)
 	}
 	if err != nil {
@@ -199,12 +207,17 @@ func (db *DB) GetSecretForAgent(accountID, agentID, name, masterKey string) (str
 			return "", fmt.Errorf("query secret acl grant: %w", err)
 		}
 		if grantedCount == 0 {
+			log.Printf("[secret_acl] deny acl: account_id=%s secret_id=%s secret_name=%s agent_id=%s acl_count=%d granted_count=%d", accountID, secretID, name, agentID, aclCount, grantedCount)
 			return "", fmt.Errorf("secret %q: access denied", name)
 		}
+		log.Printf("[secret_acl] allow acl grant: account_id=%s secret_id=%s secret_name=%s agent_id=%s acl_count=%d", accountID, secretID, name, agentID, aclCount)
+	} else {
+		log.Printf("[secret_acl] allow default account scope (no acl rows): account_id=%s secret_id=%s secret_name=%s agent_id=%s", accountID, secretID, name, agentID)
 	}
 
 	plaintext, err := decrypt(encrypted, masterKey)
 	if err != nil {
+		log.Printf("[secret_acl] decrypt failed after ACL allow: account_id=%s secret_id=%s secret_name=%s agent_id=%s err=%v", accountID, secretID, name, agentID, err)
 		// Sanitize error to avoid leaking decryption details
 		return "", fmt.Errorf("secret %q: access denied", name)
 	}
