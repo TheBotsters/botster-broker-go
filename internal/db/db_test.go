@@ -197,3 +197,49 @@ func TestAuditLog(t *testing.T) {
 		t.Errorf("expected 1 audit entry, got %d", count)
 	}
 }
+
+func TestGetSecretForAgentACLPolicy(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("acl@example.com", "pass")
+	a1, _, _ := db.CreateAgent(acc.ID, "agent-1")
+	a2, _, _ := db.CreateAgent(acc.ID, "agent-2")
+	otherAcc, _ := db.CreateAccount("other@example.com", "pass")
+	otherAgent, _, _ := db.CreateAgent(otherAcc.ID, "other-agent")
+
+	secret, err := db.CreateSecret(acc.ID, "BOTSTERSORG_GITHUB_PERSONAL_ACCESS_TOKEN", "github", "ghp-test", testMasterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Default (no ACL rows): any agent in same account can read.
+	if _, err := db.GetSecretForAgent(acc.ID, a1.ID, secret.Name, testMasterKey); err != nil {
+		t.Fatalf("agent-1 should have default account-level access: %v", err)
+	}
+	if _, err := db.GetSecretForAgent(acc.ID, a2.ID, secret.Name, testMasterKey); err != nil {
+		t.Fatalf("agent-2 should have default account-level access: %v", err)
+	}
+
+	// Agent from another account must never pass account scope check.
+	if _, err := db.GetSecretForAgent(acc.ID, otherAgent.ID, secret.Name, testMasterKey); err == nil {
+		t.Fatalf("expected cross-account access to be denied")
+	}
+
+	// Once ACL rows exist, access becomes explicit allow-list.
+	if err := db.GrantSecretAccess(secret.ID, a1.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetSecretForAgent(acc.ID, a1.ID, secret.Name, testMasterKey); err != nil {
+		t.Fatalf("agent-1 should be allowed via explicit grant: %v", err)
+	}
+	if _, err := db.GetSecretForAgent(acc.ID, a2.ID, secret.Name, testMasterKey); err == nil {
+		t.Fatalf("agent-2 should be denied once ACL is enabled and not granted")
+	}
+
+	if err := db.GrantSecretAccess(secret.ID, a2.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetSecretForAgent(acc.ID, a2.ID, secret.Name, testMasterKey); err != nil {
+		t.Fatalf("agent-2 should be allowed after grant: %v", err)
+	}
+}

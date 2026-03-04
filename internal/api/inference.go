@@ -1079,7 +1079,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	effectiveMode := authResult.Mode
 
 	if isEmbedding && authResult.Mode == openAIOAuthBundle {
-		embKey, err := s.DB.GetSecret(agent.AccountID, "OPENAI_API_KEY", s.MasterKey)
+		embKey, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, "OPENAI_API_KEY", s.MasterKey)
 		if err != nil {
 			errMsg := "Embedding request requires OPENAI_API_KEY in broker secret store (OPENAI_TOKEN oauth bundle cannot access embeddings)."
 			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+errMsg)
@@ -1262,7 +1262,7 @@ func (s *Server) handleInferenceProviders(w http.ResponseWriter, r *http.Request
 
 	result := make([]providerStatus, 0, len(inferenceProviders))
 	for name, cfg := range inferenceProviders {
-		_, err := s.DB.GetSecret(agent.AccountID, cfg.SecretName, s.MasterKey)
+		_, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, cfg.SecretName, s.MasterKey)
 		result = append(result, providerStatus{
 			Name:       name,
 			Configured: err == nil,

@@ -136,6 +136,9 @@ func (db *DB) CreateSecret(accountID, name, provider, value, masterKey string) (
 }
 
 // GetSecret retrieves and decrypts a secret by account and name.
+//
+// This is account-scoped only and does not apply per-agent ACL checks.
+// Prefer GetSecretForAgent for agent-authenticated API paths.
 func (db *DB) GetSecret(accountID, name, masterKey string) (string, error) {
 	var encrypted string
 	err := db.QueryRow(`
@@ -146,6 +149,58 @@ func (db *DB) GetSecret(accountID, name, masterKey string) (string, error) {
 	}
 	if err != nil {
 		return "", fmt.Errorf("query secret: %w", err)
+	}
+
+	plaintext, err := decrypt(encrypted, masterKey)
+	if err != nil {
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("secret %q: access denied", name)
+	}
+	return string(plaintext), nil
+}
+
+// GetSecretForAgent retrieves and decrypts a secret with agent-level authorization.
+//
+// Policy:
+//   - Secret must belong to the provided accountID.
+//   - If no ACL entries exist for the secret, allow any agent in the account (backward compatible default).
+//   - If one or more ACL entries exist, allow only agents explicitly granted in secret_access.
+func (db *DB) GetSecretForAgent(accountID, agentID, name, masterKey string) (string, error) {
+	var agentCount int
+	if err := db.QueryRow(`SELECT count(*) FROM agents WHERE id = ? AND account_id = ?`, agentID, accountID).Scan(&agentCount); err != nil {
+		return "", fmt.Errorf("query agent scope: %w", err)
+	}
+	if agentCount == 0 {
+		return "", fmt.Errorf("secret %q: access denied", name)
+	}
+
+	var (
+		secretID  string
+		encrypted string
+	)
+	err := db.QueryRow(`
+		SELECT id, encrypted_value FROM secrets WHERE account_id = ? AND name = ?
+	`, accountID, name).Scan(&secretID, &encrypted)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("secret %q not found", name)
+	}
+	if err != nil {
+		return "", fmt.Errorf("query secret: %w", err)
+	}
+
+	var aclCount int
+	if err := db.QueryRow(`SELECT count(*) FROM secret_access WHERE secret_id = ?`, secretID).Scan(&aclCount); err != nil {
+		return "", fmt.Errorf("query secret acl: %w", err)
+	}
+
+	if aclCount > 0 {
+		var grantedCount int
+		if err := db.QueryRow(`SELECT count(*) FROM secret_access WHERE secret_id = ? AND agent_id = ?`, secretID, agentID).Scan(&grantedCount); err != nil {
+			return "", fmt.Errorf("query secret acl grant: %w", err)
+		}
+		if grantedCount == 0 {
+			return "", fmt.Errorf("secret %q: access denied", name)
+		}
 	}
 
 	plaintext, err := decrypt(encrypted, masterKey)
@@ -329,7 +384,7 @@ func (db *DB) ChecksumSecret(secret *Secret, masterKey string) (string, error) {
 		secret.Name,
 		secret.Provider,
 		secret.UpdatedAt)
-	
+
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:]), nil
 }

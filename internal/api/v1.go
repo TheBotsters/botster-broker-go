@@ -20,8 +20,8 @@ import (
 
 // Server holds dependencies for API handlers.
 type Server struct {
-	Sessions *SessionStore
-	Gateways map[string]GatewayConfig
+	Sessions  *SessionStore
+	Gateways  map[string]GatewayConfig
 	Hub       *hub.Hub
 	DB        *db.DB
 	MasterKey string
@@ -108,7 +108,6 @@ func (s *Server) NewRouter() chi.Router {
 		r.Post("/groups/{id}/rotate-key", s.handleRotateGroupKey)
 		r.Get("/groups/{id}/agents", s.handleListGroupAgents)
 	})
-
 
 	// Login page redirect
 	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -290,7 +289,7 @@ func (s *Server) handleSecretsGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	value, err := s.DB.GetSecret(agent.AccountID, body.Name, s.MasterKey)
+	value, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, body.Name, s.MasterKey)
 	if err != nil {
 		jsonError(w, 404, "Secret not found or decrypt failed")
 		return
