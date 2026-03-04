@@ -11,7 +11,7 @@ echo "Time: $(date)"
 
 case "$ENV" in
     prod)
-        BROKER_URL="https://broker-internal.seksbot.com"
+        BROKER_URL="${BROKER_URL:-http://localhost:8080}"
         PORT=8080
         ;;
     staging)

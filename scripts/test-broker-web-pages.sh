@@ -4,7 +4,7 @@
 
 set -e
 
-BROKER_URL="${1:-https://broker-internal.seksbot.com}"
+BROKER_URL="${1:-http://localhost:8080}"
 
 echo "=== Broker Web Pages Test ==="
 echo ""

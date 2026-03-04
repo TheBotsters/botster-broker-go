@@ -4,8 +4,8 @@
 
 set -e
 
-BROKER_URL="${1:-https://broker-internal.seksbot.com}"
-MY_TOKEN="${MY_TOKEN:-seks_agent_ZnmHrsX8DDV7qY8LvHtjZigChTXr5NbK}"
+BROKER_URL="${1:-http://localhost:8080}"
+MY_TOKEN="${MY_TOKEN:-}"  # Set via env var
 
 echo "=== Practical Broker Test ==="
 echo "Testing connections that break our development"

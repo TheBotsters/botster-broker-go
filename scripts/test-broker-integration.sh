@@ -4,9 +4,9 @@
 
 set -e
 
-BROKER_URL="${1:-https://broker-internal.seksbot.com}"
+BROKER_URL="${1:-http://localhost:8080}"
 MASTER_KEY="${MASTER_KEY:-a3b17f17299bb3c29f445fdf7b10d2d97ee0b9a73649b6ae3c477fa8c27ff0be}"
-AGENT_TOKEN="${AGENT_TOKEN:-seks_agent_ZnmHrsX8DDV7qY8LvHtjZigChTXr5NbK}"  # Síofra's token
+AGENT_TOKEN="${AGENT_TOKEN:-}"  # Set via env var
 
 echo "=== Broker Integration Test ==="
 echo "Broker: $BROKER_URL"
