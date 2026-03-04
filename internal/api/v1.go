@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
+	"github.com/siofra-seksbot/botster-broker-go/internal/config"
 	"github.com/siofra-seksbot/botster-broker-go/internal/db"
 	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
 	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
@@ -25,6 +26,7 @@ type Server struct {
 	DB        *db.DB
 	MasterKey string
 	Tap       *tap.InferenceTap
+	Config    *config.Config
 }
 
 // scopedCapsKey is the context key for scoped token capabilities.
@@ -126,6 +128,19 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/{agent}/ws", s.handleChatProxy)
 		r.Get("/{agent}/", s.handleChatPage)
 	})
+
+	// Secrets page (session auth required)
+	r.Route("/secrets", func(r chi.Router) {
+		r.Use(s.requireAuth)
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, "web/secrets.html")
+		})
+		r.Get("/api/list", s.handleWebSecretsList)
+	})
+
+	// Sync routes
+	s.RegisterSyncRoutes(r)
+
 	return r
 }
 
@@ -602,4 +617,33 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		"command_id": commandID,
 		"message":    "Command routed. Results delivered via WS to brain.",
 	})
+}
+
+// handleWebSecretsList returns secrets for the authenticated web user.
+// GET /secrets/api/list
+func (s *Server) handleWebSecretsList(w http.ResponseWriter, r *http.Request) {
+	accountID := r.Header.Get("X-Account-ID")
+	if accountID == "" {
+		jsonError(w, 401, "Not authenticated")
+		return
+	}
+
+	secrets, err := s.DB.ListSecrets(accountID)
+	if err != nil {
+		jsonError(w, 500, "Failed to list secrets")
+		return
+	}
+
+	// Return secret metadata (no encrypted values)
+	result := make([]map[string]interface{}, 0, len(secrets))
+	for _, sec := range secrets {
+		result = append(result, map[string]interface{}{
+			"id":         sec.ID,
+			"name":       sec.Name,
+			"provider":   sec.Provider,
+			"created_at": sec.CreatedAt,
+			"updated_at": sec.UpdatedAt,
+		})
+	}
+	jsonResponse(w, 200, result)
 }

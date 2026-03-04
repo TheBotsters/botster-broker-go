@@ -78,6 +78,7 @@ func main() {
 		Tap:       inferenceTap,
 		Sessions: sessions,
 		Gateways: gateways,
+		Config:    cfg,
 	}
 
 	// Build router

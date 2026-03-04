@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -149,7 +150,8 @@ func (db *DB) GetSecret(accountID, name, masterKey string) (string, error) {
 
 	plaintext, err := decrypt(encrypted, masterKey)
 	if err != nil {
-		return "", fmt.Errorf("decrypt secret %q: %w", name, err)
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("secret %q: access denied", name)
 	}
 	return string(plaintext), nil
 }
@@ -174,7 +176,8 @@ func (db *DB) GetSecretsByPrefix(accountID, prefix, masterKey string) ([]string,
 		}
 		plaintext, err := decrypt(encrypted, masterKey)
 		if err != nil {
-			return nil, fmt.Errorf("decrypt: %w", err)
+			// Sanitize error to avoid leaking decryption details
+			return nil, fmt.Errorf("decryption failed for one or more secrets")
 		}
 		values = append(values, string(plaintext))
 	}
@@ -290,4 +293,76 @@ func (db *DB) UpdateSecretByID(id, newValue, masterKey string) error {
 		return fmt.Errorf("secret %q not found", id)
 	}
 	return nil
+}
+
+// ExportSecret decrypts a stored secret and re-encrypts with transitKey.
+// SECURITY: plaintext exists only in RAM during this call; do not log.
+func (db *DB) ExportSecret(s *Secret, masterKey, transitKey string) (string, error) {
+	plaintext, err := decrypt(s.EncryptedValue, masterKey)
+	if err != nil {
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("export failed")
+	}
+	return encrypt(plaintext, transitKey)
+}
+
+// ImportSecret decrypts a transit-encrypted value and re-encrypts with masterKey.
+// SECURITY: plaintext exists only in RAM during this call; do not log.
+func (db *DB) ImportSecret(transitEncrypted, transitKey, masterKey string) (string, error) {
+	plaintext, err := decrypt(transitEncrypted, transitKey)
+	if err != nil {
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("import failed")
+	}
+	return encrypt(plaintext, masterKey)
+}
+
+// ChecksumSecret computes a checksum for a secret.
+// This is used in sync manifests to detect changes.
+// SECURITY: Does NOT decrypt the secret; uses encrypted value + metadata.
+func (db *DB) ChecksumSecret(secret *Secret, masterKey string) (string, error) {
+	// Compute checksum on encrypted value + metadata + timestamps
+	// This ensures changes are detected without exposing plaintext
+	data := fmt.Sprintf("%s|%s|%s|%s|%s",
+		secret.EncryptedValue,
+		secret.Metadata.String,
+		secret.Name,
+		secret.Provider,
+		secret.UpdatedAt)
+	
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:]), nil
+}
+
+// CreateOrUpdateSecret creates a new secret or updates an existing one by name.
+// Returns the secret and a boolean indicating if it was created (true) or updated (false).
+func (db *DB) CreateOrUpdateSecret(accountID, name, provider, value, masterKey string) (*Secret, bool, error) {
+	// Check if secret already exists
+	secrets, err := db.ListSecrets(accountID)
+	if err != nil {
+		return nil, false, fmt.Errorf("list secrets: %w", err)
+	}
+
+	var existingSecret *Secret
+	for _, s := range secrets {
+		if s.Name == name && s.Provider == provider {
+			existingSecret = s
+			break
+		}
+	}
+
+	if existingSecret != nil {
+		// Update existing secret
+		err = db.UpdateSecretByID(existingSecret.ID, value, masterKey)
+		if err != nil {
+			return nil, false, fmt.Errorf("update secret: %w", err)
+		}
+		// Return the updated secret (need to fetch it again)
+		secret, err := db.GetSecretByID(existingSecret.ID)
+		return secret, false, err
+	} else {
+		// Create new secret
+		secret, err := db.CreateSecret(accountID, name, provider, value, masterKey)
+		return secret, true, err
+	}
 }
