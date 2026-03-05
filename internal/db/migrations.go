@@ -145,6 +145,23 @@ var migrations = []migration{
 			ALTER TABLE agents ADD COLUMN group_id TEXT REFERENCES groups(id);
 		`,
 	},
+	{
+		version:     5,
+		description: "Add sync_peers table for broker-to-broker sync",
+		sql: `
+			CREATE TABLE IF NOT EXISTS sync_peers (
+				id TEXT PRIMARY KEY,                          -- peer_id, e.g. "staging"
+				label TEXT NOT NULL,                          -- human name
+				token_hash TEXT NOT NULL UNIQUE,              -- SHA-256 of plaintext token
+				transit_key_hex TEXT NOT NULL,               -- AES-256 transit key (64-char hex)
+				transit_key_id TEXT NOT NULL,                -- label for key rotation
+				allowed_resources TEXT NOT NULL DEFAULT 'secrets',  -- comma-separated
+				allowed_accounts TEXT,                        -- NULL = all; else comma-separated IDs
+				last_synced_at TEXT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.

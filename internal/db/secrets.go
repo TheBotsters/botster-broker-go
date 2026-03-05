@@ -4,11 +4,13 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"time"
 )
 
@@ -82,8 +84,11 @@ func decrypt(encodedCiphertext, hexKey string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode key: %w", err)
 	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("key must be 32 bytes (got %d)", len(key))
+	}
 
-	ciphertext, err := decodeCiphertext(encodedCiphertext)
+	combined, err := decodeCiphertext(encodedCiphertext)
 	if err != nil {
 		return nil, err
 	}
@@ -98,13 +103,15 @@ func decrypt(encodedCiphertext, hexKey string) ([]byte, error) {
 		return nil, fmt.Errorf("new gcm: %w", err)
 	}
 
+	// Format (Node + Go): nonce/iv (12) + ciphertext + authTag (16), then encoded.
 	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
+	tagSize := gcm.Overhead()
+	if len(combined) < nonceSize+tagSize {
 		return nil, fmt.Errorf("ciphertext too short")
 	}
 
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	nonce, sealed := combined[:nonceSize], combined[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, sealed, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
@@ -135,6 +142,9 @@ func (db *DB) CreateSecret(accountID, name, provider, value, masterKey string) (
 }
 
 // GetSecret retrieves and decrypts a secret by account and name.
+//
+// This is account-scoped only and does not apply per-agent ACL checks.
+// Prefer GetSecretForAgent for agent-authenticated API paths.
 func (db *DB) GetSecret(accountID, name, masterKey string) (string, error) {
 	var encrypted string
 	err := db.QueryRow(`
@@ -149,7 +159,67 @@ func (db *DB) GetSecret(accountID, name, masterKey string) (string, error) {
 
 	plaintext, err := decrypt(encrypted, masterKey)
 	if err != nil {
-		return "", fmt.Errorf("decrypt secret %q: %w", name, err)
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("secret %q: access denied", name)
+	}
+	return string(plaintext), nil
+}
+
+// GetSecretForAgent retrieves and decrypts a secret with agent-level authorization.
+//
+// Policy:
+//   - Secret must belong to the provided accountID.
+//   - If no ACL entries exist for the secret, allow any agent in the account (backward compatible default).
+//   - If one or more ACL entries exist, allow only agents explicitly granted in secret_access.
+func (db *DB) GetSecretForAgent(accountID, agentID, name, masterKey string) (string, error) {
+	var agentCount int
+	if err := db.QueryRow(`SELECT count(*) FROM agents WHERE id = ? AND account_id = ?`, agentID, accountID).Scan(&agentCount); err != nil {
+		return "", fmt.Errorf("query agent scope: %w", err)
+	}
+	if agentCount == 0 {
+		log.Printf("[secret_acl] deny agent scope: account_id=%s agent_id=%s secret_name=%s", accountID, agentID, name)
+		return "", fmt.Errorf("secret %q: access denied", name)
+	}
+
+	var (
+		secretID  string
+		encrypted string
+	)
+	err := db.QueryRow(`
+		SELECT id, encrypted_value FROM secrets WHERE account_id = ? AND name = ?
+	`, accountID, name).Scan(&secretID, &encrypted)
+	if err == sql.ErrNoRows {
+		log.Printf("[secret_acl] secret not found: account_id=%s agent_id=%s secret_name=%s", accountID, agentID, name)
+		return "", fmt.Errorf("secret %q not found", name)
+	}
+	if err != nil {
+		return "", fmt.Errorf("query secret: %w", err)
+	}
+
+	var aclCount int
+	if err := db.QueryRow(`SELECT count(*) FROM secret_access WHERE secret_id = ?`, secretID).Scan(&aclCount); err != nil {
+		return "", fmt.Errorf("query secret acl: %w", err)
+	}
+
+	if aclCount > 0 {
+		var grantedCount int
+		if err := db.QueryRow(`SELECT count(*) FROM secret_access WHERE secret_id = ? AND agent_id = ?`, secretID, agentID).Scan(&grantedCount); err != nil {
+			return "", fmt.Errorf("query secret acl grant: %w", err)
+		}
+		if grantedCount == 0 {
+			log.Printf("[secret_acl] deny acl: account_id=%s secret_id=%s secret_name=%s agent_id=%s acl_count=%d granted_count=%d", accountID, secretID, name, agentID, aclCount, grantedCount)
+			return "", fmt.Errorf("secret %q: access denied", name)
+		}
+		log.Printf("[secret_acl] allow acl grant: account_id=%s secret_id=%s secret_name=%s agent_id=%s acl_count=%d", accountID, secretID, name, agentID, aclCount)
+	} else {
+		log.Printf("[secret_acl] allow default account scope (no acl rows): account_id=%s secret_id=%s secret_name=%s agent_id=%s", accountID, secretID, name, agentID)
+	}
+
+	plaintext, err := decrypt(encrypted, masterKey)
+	if err != nil {
+		log.Printf("[secret_acl] decrypt failed after ACL allow: account_id=%s secret_id=%s secret_name=%s agent_id=%s err=%v", accountID, secretID, name, agentID, err)
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("secret %q: access denied", name)
 	}
 	return string(plaintext), nil
 }
@@ -174,7 +244,8 @@ func (db *DB) GetSecretsByPrefix(accountID, prefix, masterKey string) ([]string,
 		}
 		plaintext, err := decrypt(encrypted, masterKey)
 		if err != nil {
-			return nil, fmt.Errorf("decrypt: %w", err)
+			// Sanitize error to avoid leaking decryption details
+			return nil, fmt.Errorf("decryption failed for one or more secrets")
 		}
 		values = append(values, string(plaintext))
 	}
@@ -290,4 +361,76 @@ func (db *DB) UpdateSecretByID(id, newValue, masterKey string) error {
 		return fmt.Errorf("secret %q not found", id)
 	}
 	return nil
+}
+
+// ExportSecret decrypts a stored secret and re-encrypts with transitKey.
+// SECURITY: plaintext exists only in RAM during this call; do not log.
+func (db *DB) ExportSecret(s *Secret, masterKey, transitKey string) (string, error) {
+	plaintext, err := decrypt(s.EncryptedValue, masterKey)
+	if err != nil {
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("export failed")
+	}
+	return encrypt(plaintext, transitKey)
+}
+
+// ImportSecret decrypts a transit-encrypted value and re-encrypts with masterKey.
+// SECURITY: plaintext exists only in RAM during this call; do not log.
+func (db *DB) ImportSecret(transitEncrypted, transitKey, masterKey string) (string, error) {
+	plaintext, err := decrypt(transitEncrypted, transitKey)
+	if err != nil {
+		// Sanitize error to avoid leaking decryption details
+		return "", fmt.Errorf("import failed")
+	}
+	return encrypt(plaintext, masterKey)
+}
+
+// ChecksumSecret computes a checksum for a secret.
+// This is used in sync manifests to detect changes.
+// SECURITY: Does NOT decrypt the secret; uses encrypted value + metadata.
+func (db *DB) ChecksumSecret(secret *Secret, masterKey string) (string, error) {
+	// Compute checksum on encrypted value + metadata + timestamps
+	// This ensures changes are detected without exposing plaintext
+	data := fmt.Sprintf("%s|%s|%s|%s|%s",
+		secret.EncryptedValue,
+		secret.Metadata.String,
+		secret.Name,
+		secret.Provider,
+		secret.UpdatedAt)
+
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:]), nil
+}
+
+// CreateOrUpdateSecret creates a new secret or updates an existing one by name.
+// Returns the secret and a boolean indicating if it was created (true) or updated (false).
+func (db *DB) CreateOrUpdateSecret(accountID, name, provider, value, masterKey string) (*Secret, bool, error) {
+	// Check if secret already exists
+	secrets, err := db.ListSecrets(accountID)
+	if err != nil {
+		return nil, false, fmt.Errorf("list secrets: %w", err)
+	}
+
+	var existingSecret *Secret
+	for _, s := range secrets {
+		if s.Name == name && s.Provider == provider {
+			existingSecret = s
+			break
+		}
+	}
+
+	if existingSecret != nil {
+		// Update existing secret
+		err = db.UpdateSecretByID(existingSecret.ID, value, masterKey)
+		if err != nil {
+			return nil, false, fmt.Errorf("update secret: %w", err)
+		}
+		// Return the updated secret (need to fetch it again)
+		secret, err := db.GetSecretByID(existingSecret.ID)
+		return secret, false, err
+	} else {
+		// Create new secret
+		secret, err := db.CreateSecret(accountID, name, provider, value, masterKey)
+		return secret, true, err
+	}
 }

@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	braveSearchEndpoint  = "https://api.search.brave.com/res/v1/web/search"
-	braveDefaultTimeout  = 15 * time.Second
+	braveSearchEndpoint = "https://api.search.brave.com/res/v1/web/search"
+	braveDefaultTimeout = 15 * time.Second
 )
 
 type webSearchParams struct {
@@ -116,8 +116,8 @@ func (s *Server) handleWebSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve tokens (best-effort; nil = not configured)
-	freeToken, _ := s.DB.GetSecret(agent.AccountID, "FREE_BRAVE_AI_TOKEN", s.MasterKey)
-	paidToken, _ := s.DB.GetSecret(agent.AccountID, "BRAVE_BASE_AI_TOKEN", s.MasterKey)
+	freeToken, _ := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, "FREE_BRAVE_AI_TOKEN", s.MasterKey)
+	paidToken, _ := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, "BRAVE_BASE_AI_TOKEN", s.MasterKey)
 
 	if freeToken == "" && paidToken == "" {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "web_search", "brave denied: no tokens configured")
