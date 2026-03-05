@@ -408,44 +408,12 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Root — unrestricted
-	if s.requireRoot(r) {
-		newToken, err := s.DB.RotateAgentToken(agentID)
-		if err != nil {
-			jsonError(w, 500, "Failed to rotate token")
-			return
-		}
-		s.DB.LogAudit(&accountID, &agentID, nil, "agent.rotate-token", target.Name)
-		jsonResponse(w, 200, map[string]interface{}{"ok": true, "token": newToken})
+	// ROOT ONLY — no admin agent tokens allowed
+	// This prevents accidental rotation via API calls
+	// UI can still rotate using root (master key) authentication
+	if !s.requireRoot(r) {
+		jsonError(w, 403, "Forbidden: token rotation requires root access")
 		return
-	}
-
-	// Group admin — any agent in the group
-	if group, ok := s.requireGroupAdmin(w, r); ok {
-		if !s.isAgentInGroup(agentID, group.ID) {
-			jsonError(w, 403, "Agent not in your group")
-			return
-		}
-		newToken, err := s.DB.RotateAgentToken(agentID)
-		if err != nil {
-			jsonError(w, 500, "Failed to rotate token")
-			return
-		}
-		s.DB.LogAudit(&accountID, &agentID, nil, "agent.rotate-token", target.Name)
-		jsonResponse(w, 200, map[string]interface{}{"ok": true, "token": newToken})
-		return
-	}
-
-	// Account admin — own token only
-	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
-	if !ok {
-		return
-	}
-	if !isRoot {
-		if !requireAccountScope(adminAgent.AccountID, accountID) || adminAgent.ID != agentID {
-			jsonError(w, 403, "Forbidden: admin can only rotate own token")
-			return
-		}
 	}
 
 	newToken, err := s.DB.RotateAgentToken(agentID)
@@ -453,10 +421,12 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 		jsonError(w, 500, "Failed to rotate token")
 		return
 	}
+	
 	s.DB.LogAudit(&accountID, &agentID, nil, "agent.rotate-token", target.Name)
 	jsonResponse(w, 200, map[string]interface{}{
 		"ok":    true,
 		"token": newToken,
+		"note":  "Token rotated. Update all services using the old token immediately.",
 	})
 }
 
