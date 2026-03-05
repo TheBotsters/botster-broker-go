@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
@@ -10,20 +11,23 @@ import (
 
 // Agent represents a brain agent in the broker.
 type Agent struct {
-	ID                 string
-	AccountID          string
-	Name               string
-	TokenHash          string
-	EncryptedToken     sql.NullString
-	Safe               bool
-	SelectedActuatorID sql.NullString
-	Role               string
-	GroupID            sql.NullString
-	CreatedAt          string
+	ID                      string
+	AccountID               string
+	Name                    string
+	TokenHash               string
+	EncryptedToken          sql.NullString
+	Safe                    bool
+	SelectedActuatorID      sql.NullString
+	Role                    string
+	GroupID                 sql.NullString
+	CreatedAt               string
+	PrevTokenHash           sql.NullString
+	TokenRotationExpiresAt  sql.NullString
+	PendingEncryptedToken   sql.NullString
 }
 
 // agentScanFields returns the standard column list for agent SELECT queries.
-const agentColumns = `id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, group_id, created_at`
+const agentColumns = `id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, group_id, created_at, prev_token_hash, token_rotation_expires_at, pending_encrypted_token`
 
 // scanAgent scans a row into an Agent struct.
 func scanAgent(scanner interface {
@@ -32,6 +36,7 @@ func scanAgent(scanner interface {
 	return scanner.Scan(
 		&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
 		&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt,
+		&a.PrevTokenHash, &a.TokenRotationExpiresAt, &a.PendingEncryptedToken,
 	)
 }
 
@@ -62,9 +67,7 @@ func (db *DB) CreateAgent(accountID, name string) (*Agent, string, error) {
 // GetAgentByID returns an agent by its ID.
 func (db *DB) GetAgentByID(id string) (*Agent, error) {
 	a := &Agent{}
-	err := db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE id = ?`, id).
-		Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
-			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt)
+	err := scanAgent(db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE id = ?`, id), a)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -75,18 +78,37 @@ func (db *DB) GetAgentByID(id string) (*Agent, error) {
 }
 
 // GetAgentByToken looks up an agent by plaintext token (hashes it first).
+// It checks the current token_hash first, then falls back to prev_token_hash
+// if a rotation grace period is active. Expired grace periods are lazily cleaned up.
 func (db *DB) GetAgentByToken(token string) (*Agent, error) {
 	hash := auth.HashToken(token)
+
+	// Try current token first.
 	a := &Agent{}
-	err := db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE token_hash = ?`, hash).
-		Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
-			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt)
+	err := scanAgent(db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE token_hash = ?`, hash), a)
+	if err == nil {
+		return a, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("query agent by token: %w", err)
+	}
+
+	// Try previous token during grace period.
+	a = &Agent{}
+	err = scanAgent(db.QueryRow(
+		`SELECT `+agentColumns+` FROM agents WHERE prev_token_hash = ? AND token_rotation_expires_at > datetime('now')`,
+		hash,
+	), a)
 	if err == sql.ErrNoRows {
+		// Lazy cleanup: clear expired prev_token_hash rows.
+		db.Exec(`UPDATE agents SET prev_token_hash = NULL, token_rotation_expires_at = NULL, pending_encrypted_token = NULL WHERE prev_token_hash = ? AND token_rotation_expires_at <= datetime('now')`, hash)
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("query agent by token: %w", err)
+		return nil, fmt.Errorf("query agent by prev token: %w", err)
 	}
+
+	log.Printf("[botster-broker] Agent %s authenticated with previous token (grace period expires %s)", a.ID, a.TokenRotationExpiresAt.String)
 	return a, nil
 }
 
@@ -101,8 +123,7 @@ func (db *DB) ListAgentsByAccount(accountID string) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
-			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt); err != nil {
+		if err := scanAgent(rows, a); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		agents = append(agents, a)
@@ -142,9 +163,7 @@ func (db *DB) DeleteAgent(id string) error {
 // For account-scoped lookup, use GetAgentByNameAndAccount.
 func (db *DB) GetAgentByName(name string) (*Agent, error) {
 	a := &Agent{}
-	err := db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE name = ? LIMIT 1`, name).
-		Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
-			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt)
+	err := scanAgent(db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE name = ? LIMIT 1`, name), a)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -178,14 +197,36 @@ func (db *DB) UpdateAgent(id string, updates map[string]interface{}) error {
 	return nil
 }
 
-// RotateAgentToken generates and stores a new token for an agent, returning the new plaintext token.
-func (db *DB) RotateAgentToken(agentID string) (string, error) {
+// RotateAgentToken generates a new token with a two-phase grace period.
+// The old token remains valid until gracePeriod elapses.
+// The new plaintext token is encrypted with masterKey for re-delivery on reconnect.
+func (db *DB) RotateAgentToken(agentID string, gracePeriod time.Duration, masterKey string) (string, error) {
+	agent, err := db.GetAgentByID(agentID)
+	if err != nil {
+		return "", fmt.Errorf("get agent: %w", err)
+	}
+	if agent == nil {
+		return "", fmt.Errorf("agent not found: %s", agentID)
+	}
+
 	token, err := auth.GenerateToken("seks_agent")
 	if err != nil {
 		return "", fmt.Errorf("generate token: %w", err)
 	}
-	tokenHash := auth.HashToken(token)
-	_, err = db.Exec(`UPDATE agents SET token_hash = ? WHERE id = ?`, tokenHash, agentID)
+	newHash := auth.HashToken(token)
+
+	encryptedNew, err := encrypt([]byte(token), masterKey)
+	if err != nil {
+		return "", fmt.Errorf("encrypt new token: %w", err)
+	}
+
+	expiresAt := time.Now().UTC().Add(gracePeriod).Format(time.RFC3339)
+
+	_, err = db.Exec(`
+		UPDATE agents
+		SET token_hash = ?, prev_token_hash = ?, token_rotation_expires_at = ?, pending_encrypted_token = ?
+		WHERE id = ?
+	`, newHash, agent.TokenHash, expiresAt, encryptedNew, agentID)
 	if err != nil {
 		return "", fmt.Errorf("rotate token: %w", err)
 	}
@@ -203,8 +244,7 @@ func (db *DB) ListAllAgents() ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
-			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt); err != nil {
+		if err := scanAgent(rows, a); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		agents = append(agents, a)

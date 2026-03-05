@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
@@ -10,16 +11,31 @@ import (
 
 // Actuator represents an execution endpoint.
 type Actuator struct {
-	ID             string
-	AccountID      string
-	Name           string
-	Type           string
-	Status         string
-	TokenHash      sql.NullString
-	EncryptedToken sql.NullString
-	Enabled        bool
-	LastSeenAt     sql.NullString
-	CreatedAt      string
+	ID                      string
+	AccountID               string
+	Name                    string
+	Type                    string
+	Status                  string
+	TokenHash               sql.NullString
+	EncryptedToken          sql.NullString
+	Enabled                 bool
+	LastSeenAt              sql.NullString
+	CreatedAt               string
+	PrevTokenHash           sql.NullString
+	TokenRotationExpiresAt  sql.NullString
+	PendingEncryptedToken   sql.NullString
+}
+
+const actuatorColumns = `id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at, prev_token_hash, token_rotation_expires_at, pending_encrypted_token`
+
+func scanActuator(scanner interface {
+	Scan(dest ...interface{}) error
+}, a *Actuator) error {
+	return scanner.Scan(
+		&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken,
+		&a.Enabled, &a.LastSeenAt, &a.CreatedAt,
+		&a.PrevTokenHash, &a.TokenRotationExpiresAt, &a.PendingEncryptedToken,
+	)
 }
 
 // CreateActuator creates a new actuator and returns it along with the plaintext token.
@@ -49,10 +65,7 @@ func (db *DB) CreateActuator(accountID, name, actuatorType string) (*Actuator, s
 // GetActuatorByID returns an actuator by ID.
 func (db *DB) GetActuatorByID(id string) (*Actuator, error) {
 	a := &Actuator{}
-	err := db.QueryRow(`
-		SELECT id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at
-		FROM actuators WHERE id = ?
-	`, id).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt)
+	err := scanActuator(db.QueryRow(`SELECT `+actuatorColumns+` FROM actuators WHERE id = ?`, id), a)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -63,28 +76,42 @@ func (db *DB) GetActuatorByID(id string) (*Actuator, error) {
 }
 
 // GetActuatorByToken looks up an actuator by plaintext token.
+// It checks the current token_hash first, then falls back to prev_token_hash
+// if a rotation grace period is active. Expired grace periods are lazily cleaned up.
 func (db *DB) GetActuatorByToken(token string) (*Actuator, error) {
 	hash := auth.HashToken(token)
+
+	// Try current token first.
 	a := &Actuator{}
-	err := db.QueryRow(`
-		SELECT id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at
-		FROM actuators WHERE token_hash = ?
-	`, hash).Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt)
+	err := scanActuator(db.QueryRow(`SELECT `+actuatorColumns+` FROM actuators WHERE token_hash = ?`, hash), a)
+	if err == nil {
+		return a, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("query actuator by token: %w", err)
+	}
+
+	// Try previous token during grace period.
+	a = &Actuator{}
+	err = scanActuator(db.QueryRow(
+		`SELECT `+actuatorColumns+` FROM actuators WHERE prev_token_hash = ? AND token_rotation_expires_at > datetime('now')`,
+		hash,
+	), a)
 	if err == sql.ErrNoRows {
+		db.Exec(`UPDATE actuators SET prev_token_hash = NULL, token_rotation_expires_at = NULL, pending_encrypted_token = NULL WHERE prev_token_hash = ? AND token_rotation_expires_at <= datetime('now')`, hash)
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("query actuator by token: %w", err)
+		return nil, fmt.Errorf("query actuator by prev token: %w", err)
 	}
+
+	log.Printf("[botster-broker] Actuator %s authenticated with previous token (grace period expires %s)", a.ID, a.TokenRotationExpiresAt.String)
 	return a, nil
 }
 
 // ListActuatorsByAccount returns all actuators for an account.
 func (db *DB) ListActuatorsByAccount(accountID string) ([]*Actuator, error) {
-	rows, err := db.Query(`
-		SELECT id, account_id, name, type, status, token_hash, encrypted_token, enabled, last_seen_at, created_at
-		FROM actuators WHERE account_id = ? ORDER BY created_at
-	`, accountID)
+	rows, err := db.Query(`SELECT `+actuatorColumns+` FROM actuators WHERE account_id = ? ORDER BY created_at`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query actuators: %w", err)
 	}
@@ -93,7 +120,7 @@ func (db *DB) ListActuatorsByAccount(accountID string) ([]*Actuator, error) {
 	var actuators []*Actuator
 	for rows.Next() {
 		a := &Actuator{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt); err != nil {
+		if err := scanActuator(rows, a); err != nil {
 			return nil, fmt.Errorf("scan actuator: %w", err)
 		}
 		actuators = append(actuators, a)
@@ -162,7 +189,8 @@ func (db *DB) ResolveActuatorForAgent(agentID string) (*Actuator, error) {
 	// Count non-brain actuators assigned to this agent
 	rows, err := db.Query(`
 		SELECT act.id, act.account_id, act.name, act.type, act.status, act.token_hash,
-		       act.encrypted_token, act.enabled, act.last_seen_at, act.created_at
+		       act.encrypted_token, act.enabled, act.last_seen_at, act.created_at,
+		       act.prev_token_hash, act.token_rotation_expires_at, act.pending_encrypted_token
 		FROM actuators act
 		JOIN agent_actuator_assignments aaa ON act.id = aaa.actuator_id
 		WHERE aaa.agent_id = ? AND aaa.enabled = 1 AND act.enabled = 1 AND act.type != 'brain'
@@ -176,7 +204,7 @@ func (db *DB) ResolveActuatorForAgent(agentID string) (*Actuator, error) {
 	var candidates []*Actuator
 	for rows.Next() {
 		a := &Actuator{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt); err != nil {
+		if err := scanActuator(rows, a); err != nil {
 			return nil, err
 		}
 		candidates = append(candidates, a)
@@ -213,7 +241,8 @@ func (db *DB) DeleteActuator(id string) error {
 func (db *DB) ListActuatorsByAgent(agentID string) ([]*Actuator, error) {
 	rows, err := db.Query(`
 		SELECT act.id, act.account_id, act.name, act.type, act.status, act.token_hash,
-		       act.encrypted_token, act.enabled, act.last_seen_at, act.created_at
+		       act.encrypted_token, act.enabled, act.last_seen_at, act.created_at,
+		       act.prev_token_hash, act.token_rotation_expires_at, act.pending_encrypted_token
 		FROM actuators act
 		JOIN agent_actuator_assignments aaa ON act.id = aaa.actuator_id
 		WHERE aaa.agent_id = ?
@@ -227,10 +256,45 @@ func (db *DB) ListActuatorsByAgent(agentID string) ([]*Actuator, error) {
 	var actuators []*Actuator
 	for rows.Next() {
 		a := &Actuator{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.Type, &a.Status, &a.TokenHash, &a.EncryptedToken, &a.Enabled, &a.LastSeenAt, &a.CreatedAt); err != nil {
+		if err := scanActuator(rows, a); err != nil {
 			return nil, fmt.Errorf("scan actuator: %w", err)
 		}
 		actuators = append(actuators, a)
 	}
 	return actuators, rows.Err()
+}
+
+// RotateActuatorToken generates a new token with a two-phase grace period.
+// The old token remains valid until gracePeriod elapses.
+func (db *DB) RotateActuatorToken(actuatorID string, gracePeriod time.Duration, masterKey string) (string, error) {
+	actuator, err := db.GetActuatorByID(actuatorID)
+	if err != nil {
+		return "", fmt.Errorf("get actuator: %w", err)
+	}
+	if actuator == nil {
+		return "", fmt.Errorf("actuator not found: %s", actuatorID)
+	}
+
+	token, err := auth.GenerateToken("seks_actuator")
+	if err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
+	}
+	newHash := auth.HashToken(token)
+
+	encryptedNew, err := encrypt([]byte(token), masterKey)
+	if err != nil {
+		return "", fmt.Errorf("encrypt new token: %w", err)
+	}
+
+	expiresAt := time.Now().UTC().Add(gracePeriod).Format(time.RFC3339)
+
+	_, err = db.Exec(`
+		UPDATE actuators
+		SET token_hash = ?, prev_token_hash = ?, token_rotation_expires_at = ?, pending_encrypted_token = ?
+		WHERE id = ?
+	`, newHash, actuator.TokenHash.String, expiresAt, encryptedNew, actuatorID)
+	if err != nil {
+		return "", fmt.Errorf("rotate actuator token: %w", err)
+	}
+	return token, nil
 }

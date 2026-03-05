@@ -28,6 +28,7 @@ const (
 	TypeSafeModeError  = "safe_mode"
 	TypePing           = "ping"
 	TypePong           = "pong"
+	TypeTokenRotated   = "token_rotated"
 )
 
 // WSMessage is a generic envelope for WebSocket messages.
@@ -35,6 +36,7 @@ type WSMessage struct {
 	Type       string          `json:"type"`
 	ID         string          `json:"id,omitempty"`
 	Token      string          `json:"token,omitempty"`
+	NewToken   string          `json:"new_token,omitempty"`
 	Capability string          `json:"capability,omitempty"`
 	ActuatorID string          `json:"actuator_id,omitempty"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
@@ -279,6 +281,11 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn.ActuatorID = actuator.ID
 		conn.AccountID = actuator.AccountID
 
+		// Re-deliver pending token rotation on reconnect.
+		if actuator.PrevTokenHash.Valid && actuator.TokenRotationExpiresAt.Valid && actuator.PendingEncryptedToken.Valid {
+			h.redeliverTokenRotation(conn, actuator.PendingEncryptedToken.String, "actuator", actuator.ID)
+		}
+
 	case TypeBrainHello:
 		agent, err := h.db.GetAgentByToken(hello.Token)
 		if err != nil || agent == nil {
@@ -289,6 +296,11 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn.Role = "brain"
 		conn.AgentID = agent.ID
 		conn.AccountID = agent.AccountID
+
+		// Re-deliver pending token rotation on reconnect.
+		if agent.PrevTokenHash.Valid && agent.TokenRotationExpiresAt.Valid && agent.PendingEncryptedToken.Valid {
+			h.redeliverTokenRotation(conn, agent.PendingEncryptedToken.String, "brain", agent.ID)
+		}
 
 	default:
 		ws.Close(websocket.StatusProtocolError, "Expected actuator_hello or brain_hello")
@@ -454,6 +466,49 @@ func (h *Hub) DeliverBufferedWakes(agentID string, conn *Connection) {
 		conn.sendCh <- data
 	}
 	log.Printf("[hub] Delivered %d buffered wake(s) to brain agent %s", len(msgs), agentID)
+}
+
+// redeliverTokenRotation decrypts a pending encrypted token and sends a token_rotated message.
+func (h *Hub) redeliverTokenRotation(conn *Connection, encryptedToken, role, entityID string) {
+	newToken, err := db.DecryptToken(encryptedToken, h.masterKey)
+	if err != nil {
+		log.Printf("[botster-broker-hub] Failed to decrypt pending token for %s %s: %v", role, entityID, err)
+		return
+	}
+	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
+	data, _ := json.Marshal(msg)
+	go func() { conn.sendCh <- data }()
+	log.Printf("[botster-broker-hub] Re-delivering token_rotated to reconnected %s %s", role, entityID)
+}
+
+// NotifyAgentTokenRotated sends a token_rotated message to a connected brain.
+func (h *Hub) NotifyAgentTokenRotated(agentID, newToken string) {
+	h.mu.RLock()
+	conn, ok := h.brains[agentID]
+	h.mu.RUnlock()
+	if !ok {
+		log.Printf("[botster-broker-hub] Agent %s not connected, token_rotated will be re-delivered on reconnect", agentID)
+		return
+	}
+	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
+	data, _ := json.Marshal(msg)
+	conn.sendCh <- data
+	log.Printf("[botster-broker-hub] Sent token_rotated to brain agent=%s", agentID)
+}
+
+// NotifyActuatorTokenRotated sends a token_rotated message to a connected actuator.
+func (h *Hub) NotifyActuatorTokenRotated(actuatorID, newToken string) {
+	h.mu.RLock()
+	conn, ok := h.actuators[actuatorID]
+	h.mu.RUnlock()
+	if !ok {
+		log.Printf("[botster-broker-hub] Actuator %s not connected, token_rotated will be re-delivered on reconnect", actuatorID)
+		return
+	}
+	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
+	data, _ := json.Marshal(msg)
+	conn.sendCh <- data
+	log.Printf("[botster-broker-hub] Sent token_rotated to actuator=%s", actuatorID)
 }
 
 // SendCh returns the connection's send channel for direct message delivery.

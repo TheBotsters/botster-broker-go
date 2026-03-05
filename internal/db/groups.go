@@ -170,8 +170,7 @@ func (db *DB) GetAgentsByGroup(groupID string) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
-			&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt); err != nil {
+		if err := scanAgent(rows, a); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		agents = append(agents, a)

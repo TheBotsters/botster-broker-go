@@ -162,6 +162,19 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version:     6,
+		description: "Add token rotation grace-period columns to agents and actuators",
+		sql: `
+			ALTER TABLE agents ADD COLUMN prev_token_hash TEXT;
+			ALTER TABLE agents ADD COLUMN token_rotation_expires_at TEXT;
+			ALTER TABLE agents ADD COLUMN pending_encrypted_token TEXT;
+
+			ALTER TABLE actuators ADD COLUMN prev_token_hash TEXT;
+			ALTER TABLE actuators ADD COLUMN token_rotation_expires_at TEXT;
+			ALTER TABLE actuators ADD COLUMN pending_encrypted_token TEXT;
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.

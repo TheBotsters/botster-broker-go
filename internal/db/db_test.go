@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 const testMasterKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -27,8 +28,8 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 4 {
-		t.Errorf("expected schema version 4, got %d", v)
+	if v != 6 {
+		t.Errorf("expected schema version 6, got %d", v)
 	}
 }
 
@@ -260,5 +261,115 @@ func TestGetSecretForAgentWrongMasterKeyLooksLikeAccessDenied(t *testing.T) {
 	wrongKey := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 	if _, err := db.GetSecretForAgent(acc.ID, agent.ID, secret.Name, wrongKey); err == nil {
 		t.Fatalf("expected failure with wrong master key")
+	}
+}
+
+func TestAgentTokenRotationGracePeriod(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("rotation@example.com", "pass")
+	agent, oldToken, err := db.CreateAgent(acc.ID, "rotate-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rotate with a generous grace period.
+	newToken, err := db.RotateAgentToken(agent.ID, 5*time.Minute, testMasterKey)
+	if err != nil {
+		t.Fatalf("rotate token: %v", err)
+	}
+	if newToken == oldToken {
+		t.Fatal("new token should differ from old token")
+	}
+
+	// New token works immediately.
+	found, err := db.GetAgentByToken(newToken)
+	if err != nil {
+		t.Fatalf("new token lookup: %v", err)
+	}
+	if found == nil || found.ID != agent.ID {
+		t.Fatal("expected to find agent by new token")
+	}
+
+	// Old token still accepted during grace period.
+	found, err = db.GetAgentByToken(oldToken)
+	if err != nil {
+		t.Fatalf("old token lookup: %v", err)
+	}
+	if found == nil || found.ID != agent.ID {
+		t.Fatal("expected to find agent by old token during grace period")
+	}
+}
+
+func TestAgentTokenRotationExpiredGrace(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("expired@example.com", "pass")
+	agent, oldToken, err := db.CreateAgent(acc.ID, "expire-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rotate with a normal grace period first.
+	newToken, err := db.RotateAgentToken(agent.ID, 5*time.Minute, testMasterKey)
+	if err != nil {
+		t.Fatalf("rotate token: %v", err)
+	}
+
+	// Force the expiry into the past to simulate grace period elapsed.
+	_, err = db.Exec(`UPDATE agents SET token_rotation_expires_at = datetime('now', '-1 minute') WHERE id = ?`, agent.ID)
+	if err != nil {
+		t.Fatalf("force expiry: %v", err)
+	}
+
+	// New token still works.
+	found, err := db.GetAgentByToken(newToken)
+	if err != nil {
+		t.Fatalf("new token lookup: %v", err)
+	}
+	if found == nil || found.ID != agent.ID {
+		t.Fatal("expected to find agent by new token")
+	}
+
+	// Old token rejected after grace expired.
+	found, err = db.GetAgentByToken(oldToken)
+	if err != nil {
+		t.Fatalf("old token lookup error: %v", err)
+	}
+	if found != nil {
+		t.Fatal("expected old token to be rejected after grace period")
+	}
+}
+
+func TestActuatorTokenRotationGracePeriod(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("act-rotation@example.com", "pass")
+	actuator, oldToken, err := db.CreateActuator(acc.ID, "rotate-actuator", "vps")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newToken, err := db.RotateActuatorToken(actuator.ID, 5*time.Minute, testMasterKey)
+	if err != nil {
+		t.Fatalf("rotate token: %v", err)
+	}
+
+	// New token works.
+	found, err := db.GetActuatorByToken(newToken)
+	if err != nil {
+		t.Fatalf("new token lookup: %v", err)
+	}
+	if found == nil || found.ID != actuator.ID {
+		t.Fatal("expected to find actuator by new token")
+	}
+
+	// Old token accepted during grace.
+	found, err = db.GetActuatorByToken(oldToken)
+	if err != nil {
+		t.Fatalf("old token lookup: %v", err)
+	}
+	if found == nil || found.ID != actuator.ID {
+		t.Fatal("expected to find actuator by old token during grace period")
 	}
 }
