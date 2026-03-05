@@ -492,8 +492,12 @@ func (h *Hub) NotifyAgentTokenRotated(agentID, newToken string) {
 	}
 	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
 	data, _ := json.Marshal(msg)
-	conn.sendCh <- data
-	log.Printf("[botster-broker-hub] Sent token_rotated to brain agent=%s", agentID)
+	select {
+	case conn.sendCh <- data:
+		log.Printf("[botster-broker-hub] Sent token_rotated to brain agent=%s", agentID)
+	default:
+		log.Printf("[botster-broker-hub] token_rotated send channel full for agent=%s, dropping", agentID)
+	}
 }
 
 // NotifyActuatorTokenRotated sends a token_rotated message to a connected actuator.
@@ -507,8 +511,12 @@ func (h *Hub) NotifyActuatorTokenRotated(actuatorID, newToken string) {
 	}
 	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
 	data, _ := json.Marshal(msg)
-	conn.sendCh <- data
-	log.Printf("[botster-broker-hub] Sent token_rotated to actuator=%s", actuatorID)
+	select {
+	case conn.sendCh <- data:
+		log.Printf("[botster-broker-hub] Sent token_rotated to actuator=%s", actuatorID)
+	default:
+		log.Printf("[botster-broker-hub] token_rotated send channel full for actuator=%s, dropping", actuatorID)
+	}
 }
 
 // SendCh returns the connection's send channel for direct message delivery.
