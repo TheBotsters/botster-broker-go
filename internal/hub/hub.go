@@ -20,15 +20,16 @@ import (
 
 // Message types for the WebSocket protocol.
 const (
-	TypeActuatorHello  = "actuator_hello"
-	TypeBrainHello     = "brain_hello"
-	TypeCommandRequest = "command_delivery"
-	TypeCommandResult  = "command_result"
-	TypeWake           = "wake"
-	TypeSafeModeError  = "safe_mode"
-	TypePing           = "ping"
-	TypePong           = "pong"
-	TypeTokenRotated   = "token_rotated"
+	TypeActuatorHello   = "actuator_hello"
+	TypeBrainHello      = "brain_hello"
+	TypeCommandRequest  = "command_delivery"
+	TypeCommandResult   = "command_result"
+	TypeWake            = "wake"
+	TypeSafeModeError   = "safe_mode"
+	TypePing            = "ping"
+	TypePong            = "pong"
+	TypeTokenRotated    = "token_rotated"
+	TypeTokenRotatedAck = "token_rotated_ack"
 )
 
 // WSMessage is a generic envelope for WebSocket messages.
@@ -37,6 +38,7 @@ type WSMessage struct {
 	ID         string          `json:"id,omitempty"`
 	Token      string          `json:"token,omitempty"`
 	NewToken   string          `json:"new_token,omitempty"`
+	RotationID string          `json:"rotation_id,omitempty"`
 	Capability string          `json:"capability,omitempty"`
 	ActuatorID string          `json:"actuator_id,omitempty"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
@@ -49,14 +51,15 @@ type WSMessage struct {
 
 // Connection represents a connected brain or actuator.
 type Connection struct {
-	ID         string
-	Role       string // "brain" or "actuator"
-	AgentID    string // for brains: agent ID; for actuators: ""
-	ActuatorID string // for actuators: actuator ID; for brains: ""
-	AccountID  string
-	ws         *websocket.Conn
-	sendCh     chan []byte
-	hub        *Hub
+	ID           string
+	Role         string // "brain" or "actuator"
+	AgentID      string // for brains: agent ID; for actuators: ""
+	ActuatorID   string // for actuators: actuator ID; for brains: ""
+	AccountID    string
+	RecoveryOnly bool
+	ws           *websocket.Conn
+	sendCh       chan []byte
+	hub          *Hub
 }
 
 // Hub is the supervisor that manages all WebSocket connections.
@@ -84,10 +87,10 @@ type Hub struct {
 }
 
 type commandRequest struct {
-	agentID    string
-	accountID  string
-	msg        WSMessage
-	resultCh   chan WSMessage // optional, for sync mode
+	agentID   string
+	accountID string
+	msg       WSMessage
+	resultCh  chan WSMessage // optional, for sync mode
 }
 
 // New creates a new Hub.
@@ -195,6 +198,14 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 		}
 		return
 	}
+	if conn.RecoveryOnly {
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "Actuator is in token recovery mode"}
+		if cmd.resultCh != nil {
+			cmd.resultCh <- errMsg
+		}
+		log.Printf("[hub] Command %s blocked: actuator %s is recovery-only", cmd.msg.ID, actuator.ID)
+		return
+	}
 
 	// Register pending result if sync
 	if cmd.resultCh != nil {
@@ -280,10 +291,11 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn.Role = "actuator"
 		conn.ActuatorID = actuator.ID
 		conn.AccountID = actuator.AccountID
+		conn.RecoveryOnly = actuator.AuthMode == "recovery"
 
 		// Re-deliver pending token rotation on reconnect.
-		if actuator.PrevTokenHash.Valid && actuator.TokenRotationExpiresAt.Valid && actuator.PendingEncryptedToken.Valid {
-			h.redeliverTokenRotation(conn, actuator.PendingEncryptedToken.String, "actuator", actuator.ID)
+		if actuator.PrevTokenHash.Valid && actuator.PendingEncryptedToken.Valid && actuator.PendingRotationID.Valid {
+			h.redeliverTokenRotation(conn, actuator.PendingEncryptedToken.String, actuator.PendingRotationID.String, "actuator", actuator.ID)
 		}
 
 	case TypeBrainHello:
@@ -296,10 +308,11 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn.Role = "brain"
 		conn.AgentID = agent.ID
 		conn.AccountID = agent.AccountID
+		conn.RecoveryOnly = agent.AuthMode == "recovery"
 
 		// Re-deliver pending token rotation on reconnect.
-		if agent.PrevTokenHash.Valid && agent.TokenRotationExpiresAt.Valid && agent.PendingEncryptedToken.Valid {
-			h.redeliverTokenRotation(conn, agent.PendingEncryptedToken.String, "brain", agent.ID)
+		if agent.PrevTokenHash.Valid && agent.PendingEncryptedToken.Valid && agent.PendingRotationID.Valid {
+			h.redeliverTokenRotation(conn, agent.PendingEncryptedToken.String, agent.PendingRotationID.String, "brain", agent.ID)
 		}
 
 	default:
@@ -344,6 +357,10 @@ func (c *Connection) readPump(ctx context.Context) {
 		switch msg.Type {
 		case TypeCommandRequest:
 			if c.Role == "brain" {
+				if c.RecoveryOnly {
+					log.Printf("[hub] Dropping command_request from recovery-only brain agent=%s", c.AgentID)
+					continue
+				}
 				c.hub.commandCh <- commandRequest{
 					agentID:   c.AgentID,
 					accountID: c.AccountID,
@@ -385,6 +402,33 @@ func (c *Connection) readPump(ctx context.Context) {
 					}
 				}
 				c.hub.mu.RUnlock()
+			}
+
+		case TypeTokenRotatedAck:
+			if msg.RotationID == "" {
+				log.Printf("[botster-broker-hub] Ignoring token_rotated_ack with empty rotation_id from %s", c.Role)
+				continue
+			}
+			if c.Role == "brain" {
+				ok, err := c.hub.db.AcknowledgeAgentTokenRotation(c.AgentID, msg.RotationID)
+				if err != nil {
+					log.Printf("[botster-broker-hub] Failed token rotation ack for brain %s: %v", c.AgentID, err)
+					continue
+				}
+				if ok {
+					c.RecoveryOnly = false
+					log.Printf("[botster-broker-hub] Cleared pending token rotation for brain %s", c.AgentID)
+				}
+			} else if c.Role == "actuator" {
+				ok, err := c.hub.db.AcknowledgeActuatorTokenRotation(c.ActuatorID, msg.RotationID)
+				if err != nil {
+					log.Printf("[botster-broker-hub] Failed token rotation ack for actuator %s: %v", c.ActuatorID, err)
+					continue
+				}
+				if ok {
+					c.RecoveryOnly = false
+					log.Printf("[botster-broker-hub] Cleared pending token rotation for actuator %s", c.ActuatorID)
+				}
 			}
 
 		case TypePing:
@@ -469,13 +513,13 @@ func (h *Hub) DeliverBufferedWakes(agentID string, conn *Connection) {
 }
 
 // redeliverTokenRotation decrypts a pending encrypted token and sends a token_rotated message.
-func (h *Hub) redeliverTokenRotation(conn *Connection, encryptedToken, role, entityID string) {
+func (h *Hub) redeliverTokenRotation(conn *Connection, encryptedToken, rotationID, role, entityID string) {
 	newToken, err := db.DecryptToken(encryptedToken, h.masterKey)
 	if err != nil {
 		log.Printf("[botster-broker-hub] Failed to decrypt pending token for %s %s: %v", role, entityID, err)
 		return
 	}
-	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
+	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken, RotationID: rotationID}
 	data, _ := json.Marshal(msg)
 	go func() { conn.sendCh <- data }()
 	log.Printf("[botster-broker-hub] Re-delivering token_rotated to reconnected %s %s", role, entityID)
@@ -490,7 +534,12 @@ func (h *Hub) NotifyAgentTokenRotated(agentID, newToken string) {
 		log.Printf("[botster-broker-hub] Agent %s not connected, token_rotated will be re-delivered on reconnect", agentID)
 		return
 	}
-	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
+	agent, err := h.db.GetAgentByID(agentID)
+	if err != nil || agent == nil || !agent.PendingRotationID.Valid {
+		log.Printf("[botster-broker-hub] Missing pending rotation metadata for agent=%s", agentID)
+		return
+	}
+	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken, RotationID: agent.PendingRotationID.String}
 	data, _ := json.Marshal(msg)
 	select {
 	case conn.sendCh <- data:
@@ -509,7 +558,12 @@ func (h *Hub) NotifyActuatorTokenRotated(actuatorID, newToken string) {
 		log.Printf("[botster-broker-hub] Actuator %s not connected, token_rotated will be re-delivered on reconnect", actuatorID)
 		return
 	}
-	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken}
+	actuator, err := h.db.GetActuatorByID(actuatorID)
+	if err != nil || actuator == nil || !actuator.PendingRotationID.Valid {
+		log.Printf("[botster-broker-hub] Missing pending rotation metadata for actuator=%s", actuatorID)
+		return
+	}
+	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken, RotationID: actuator.PendingRotationID.String}
 	data, _ := json.Marshal(msg)
 	select {
 	case conn.sendCh <- data:

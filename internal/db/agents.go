@@ -11,23 +11,27 @@ import (
 
 // Agent represents a brain agent in the broker.
 type Agent struct {
-	ID                      string
-	AccountID               string
-	Name                    string
-	TokenHash               string
-	EncryptedToken          sql.NullString
-	Safe                    bool
-	SelectedActuatorID      sql.NullString
-	Role                    string
-	GroupID                 sql.NullString
-	CreatedAt               string
-	PrevTokenHash           sql.NullString
-	TokenRotationExpiresAt  sql.NullString
-	PendingEncryptedToken   sql.NullString
+	ID                       string
+	AccountID                string
+	Name                     string
+	TokenHash                string
+	EncryptedToken           sql.NullString
+	Safe                     bool
+	SelectedActuatorID       sql.NullString
+	Role                     string
+	GroupID                  sql.NullString
+	CreatedAt                string
+	PrevTokenHash            sql.NullString
+	TokenRotationExpiresAt   sql.NullString
+	PendingEncryptedToken    sql.NullString
+	PendingRotationID        sql.NullString
+	PendingRecoveryExpiresAt sql.NullString
+	RecoveryIssuedAt         sql.NullString
+	AuthMode                 string
 }
 
 // agentScanFields returns the standard column list for agent SELECT queries.
-const agentColumns = `id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, group_id, created_at, prev_token_hash, token_rotation_expires_at, pending_encrypted_token`
+const agentColumns = `id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, group_id, created_at, prev_token_hash, token_rotation_expires_at, pending_encrypted_token, pending_rotation_id, pending_recovery_expires_at, recovery_issued_at`
 
 // scanAgent scans a row into an Agent struct.
 func scanAgent(scanner interface {
@@ -37,6 +41,7 @@ func scanAgent(scanner interface {
 		&a.ID, &a.AccountID, &a.Name, &a.TokenHash, &a.EncryptedToken,
 		&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt,
 		&a.PrevTokenHash, &a.TokenRotationExpiresAt, &a.PendingEncryptedToken,
+		&a.PendingRotationID, &a.PendingRecoveryExpiresAt, &a.RecoveryIssuedAt,
 	)
 }
 
@@ -78,8 +83,10 @@ func (db *DB) GetAgentByID(id string) (*Agent, error) {
 }
 
 // GetAgentByToken looks up an agent by plaintext token (hashes it first).
-// It checks the current token_hash first, then falls back to prev_token_hash
-// if a rotation grace period is active. Expired grace periods are lazily cleaned up.
+// Auth modes:
+// - current: token_hash match
+// - grace: prev_token_hash match within grace period
+// - recovery: single-use fallback after grace, only while pending rotation is valid
 func (db *DB) GetAgentByToken(token string) (*Agent, error) {
 	hash := auth.HashToken(token)
 
@@ -87,6 +94,7 @@ func (db *DB) GetAgentByToken(token string) (*Agent, error) {
 	a := &Agent{}
 	err := scanAgent(db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE token_hash = ?`, hash), a)
 	if err == nil {
+		a.AuthMode = "current"
 		return a, nil
 	}
 	if err != sql.ErrNoRows {
@@ -99,17 +107,54 @@ func (db *DB) GetAgentByToken(token string) (*Agent, error) {
 		`SELECT `+agentColumns+` FROM agents WHERE prev_token_hash = ? AND token_rotation_expires_at > datetime('now')`,
 		hash,
 	), a)
-	if err == sql.ErrNoRows {
-		// Lazy cleanup: clear expired prev_token_hash rows.
-		db.Exec(`UPDATE agents SET prev_token_hash = NULL, token_rotation_expires_at = NULL, pending_encrypted_token = NULL WHERE prev_token_hash = ? AND token_rotation_expires_at <= datetime('now')`, hash)
-		return nil, nil
+	if err == nil {
+		a.AuthMode = "grace"
+		log.Printf("[botster-broker] Agent %s authenticated with previous token (grace period expires %s)", a.ID, a.TokenRotationExpiresAt.String)
+		return a, nil
 	}
-	if err != nil {
+	if err != sql.ErrNoRows {
 		return nil, fmt.Errorf("query agent by prev token: %w", err)
 	}
 
-	log.Printf("[botster-broker] Agent %s authenticated with previous token (grace period expires %s)", a.ID, a.TokenRotationExpiresAt.String)
-	return a, nil
+	// Recovery path: allow one-time auth with previous token after grace, if pending
+	// rotation is still valid and has not already been issued.
+	res, err := db.Exec(`
+		UPDATE agents
+		SET recovery_issued_at = datetime('now')
+		WHERE prev_token_hash = ?
+		  AND pending_encrypted_token IS NOT NULL
+		  AND pending_rotation_id IS NOT NULL
+		  AND pending_recovery_expires_at > datetime('now')
+		  AND (recovery_issued_at IS NULL)
+	`, hash)
+	if err != nil {
+		return nil, fmt.Errorf("claim agent recovery: %w", err)
+	}
+	if rows, _ := res.RowsAffected(); rows > 0 {
+		a = &Agent{}
+		err = scanAgent(db.QueryRow(`SELECT `+agentColumns+` FROM agents WHERE prev_token_hash = ?`, hash), a)
+		if err != nil {
+			return nil, fmt.Errorf("query agent after recovery claim: %w", err)
+		}
+		a.AuthMode = "recovery"
+		log.Printf("[botster-broker] Agent %s authenticated via single-use recovery path", a.ID)
+		return a, nil
+	}
+
+	// Lazy cleanup: clear fully expired pending rotation state.
+	db.Exec(`
+		UPDATE agents
+		SET prev_token_hash = NULL,
+		    token_rotation_expires_at = NULL,
+		    pending_encrypted_token = NULL,
+		    pending_rotation_id = NULL,
+		    pending_recovery_expires_at = NULL,
+		    recovery_issued_at = NULL
+		WHERE prev_token_hash = ?
+		  AND pending_recovery_expires_at <= datetime('now')
+	`, hash)
+
+	return nil, nil
 }
 
 // ListAgentsByAccount returns all agents belonging to an account.
@@ -220,17 +265,40 @@ func (db *DB) RotateAgentToken(agentID string, gracePeriod time.Duration, master
 		return "", fmt.Errorf("encrypt new token: %w", err)
 	}
 
-	expiresAt := time.Now().UTC().Add(gracePeriod).Format(time.RFC3339)
+	now := time.Now().UTC()
+	expiresAt := now.Add(gracePeriod).Format(time.RFC3339)
+	hardExpiresAt := now.Add(24 * time.Hour).Format(time.RFC3339)
+	rotationID := generateID()
 
 	_, err = db.Exec(`
 		UPDATE agents
-		SET token_hash = ?, prev_token_hash = ?, token_rotation_expires_at = ?, pending_encrypted_token = ?
+		SET token_hash = ?, prev_token_hash = ?, token_rotation_expires_at = ?, pending_encrypted_token = ?, pending_rotation_id = ?, pending_recovery_expires_at = ?, recovery_issued_at = NULL
 		WHERE id = ?
-	`, newHash, agent.TokenHash, expiresAt, encryptedNew, agentID)
+	`, newHash, agent.TokenHash, expiresAt, encryptedNew, rotationID, hardExpiresAt, agentID)
 	if err != nil {
 		return "", fmt.Errorf("rotate token: %w", err)
 	}
 	return token, nil
+}
+
+// AcknowledgeAgentTokenRotation clears pending token-rotation residue after client confirmation.
+// Returns true when a matching pending rotation was acknowledged and cleared.
+func (db *DB) AcknowledgeAgentTokenRotation(agentID, rotationID string) (bool, error) {
+	res, err := db.Exec(`
+		UPDATE agents
+		SET prev_token_hash = NULL,
+		    token_rotation_expires_at = NULL,
+		    pending_encrypted_token = NULL,
+		    pending_rotation_id = NULL,
+		    pending_recovery_expires_at = NULL,
+		    recovery_issued_at = NULL
+		WHERE id = ? AND pending_rotation_id = ?
+	`, agentID, rotationID)
+	if err != nil {
+		return false, fmt.Errorf("ack agent token rotation: %w", err)
+	}
+	rows, _ := res.RowsAffected()
+	return rows > 0, nil
 }
 
 // ListAllAgents returns all agents across all accounts.

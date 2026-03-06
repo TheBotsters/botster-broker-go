@@ -28,8 +28,8 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("expected schema version 6, got %d", v)
+	if v != 7 {
+		t.Errorf("expected schema version 7, got %d", v)
 	}
 }
 
@@ -316,8 +316,13 @@ func TestAgentTokenRotationExpiredGrace(t *testing.T) {
 		t.Fatalf("rotate token: %v", err)
 	}
 
-	// Force the expiry into the past to simulate grace period elapsed.
-	_, err = db.Exec(`UPDATE agents SET token_rotation_expires_at = datetime('now', '-1 minute') WHERE id = ?`, agent.ID)
+	// Force grace and hard-recovery expiry into the past.
+	_, err = db.Exec(`
+		UPDATE agents
+		SET token_rotation_expires_at = datetime('now', '-1 minute'),
+		    pending_recovery_expires_at = datetime('now', '-1 second')
+		WHERE id = ?
+	`, agent.ID)
 	if err != nil {
 		t.Fatalf("force expiry: %v", err)
 	}
@@ -371,5 +376,113 @@ func TestActuatorTokenRotationGracePeriod(t *testing.T) {
 	}
 	if found == nil || found.ID != actuator.ID {
 		t.Fatal("expected to find actuator by old token during grace period")
+	}
+}
+
+func TestAgentTokenRecoverySingleUseAndAck(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("recover@example.com", "pass")
+	agent, oldToken, err := db.CreateAgent(acc.ID, "recover-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.RotateAgentToken(agent.ID, 5*time.Minute, testMasterKey)
+	if err != nil {
+		t.Fatalf("rotate token: %v", err)
+	}
+
+	// Force grace window expired while keeping pending recovery valid.
+	if _, err := db.Exec(`
+		UPDATE agents
+		SET token_rotation_expires_at = datetime('now', '-1 minute'),
+		    pending_recovery_expires_at = datetime('now', '+1 hour')
+		WHERE id = ?
+	`, agent.ID); err != nil {
+		t.Fatalf("force timing windows: %v", err)
+	}
+
+	// First stale-token reconnect gets single-use recovery auth.
+	found, err := db.GetAgentByToken(oldToken)
+	if err != nil {
+		t.Fatalf("recovery auth lookup: %v", err)
+	}
+	if found == nil || found.ID != agent.ID {
+		t.Fatal("expected recovery auth to succeed")
+	}
+	if found.AuthMode != "recovery" {
+		t.Fatalf("expected auth_mode recovery, got %q", found.AuthMode)
+	}
+
+	// Second stale-token attempt is denied before ack (single-use gate).
+	found, err = db.GetAgentByToken(oldToken)
+	if err != nil {
+		t.Fatalf("second stale lookup: %v", err)
+	}
+	if found != nil {
+		t.Fatal("expected second stale-token recovery attempt to fail")
+	}
+
+	fresh, err := db.GetAgentByID(agent.ID)
+	if err != nil || fresh == nil || !fresh.PendingRotationID.Valid {
+		t.Fatalf("expected pending rotation id present: %v", err)
+	}
+
+	// Wrong ack rotation id must not clear state.
+	ok, err := db.AcknowledgeAgentTokenRotation(agent.ID, "wrong-rotation-id")
+	if err != nil {
+		t.Fatalf("ack wrong rotation id: %v", err)
+	}
+	if ok {
+		t.Fatal("wrong rotation id should not acknowledge")
+	}
+
+	// Correct ack clears pending rotation residue.
+	ok, err = db.AcknowledgeAgentTokenRotation(agent.ID, fresh.PendingRotationID.String)
+	if err != nil {
+		t.Fatalf("ack correct rotation id: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected correct ack to clear pending rotation")
+	}
+}
+
+func TestActuatorTokenRecoveryHardTTLExpiry(t *testing.T) {
+	db := testDB(t)
+
+	acc, _ := db.CreateAccount("act-recover@example.com", "pass")
+	actuator, oldToken, err := db.CreateActuator(acc.ID, "recover-actuator", "vps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.RotateActuatorToken(actuator.ID, 5*time.Minute, testMasterKey)
+	if err != nil {
+		t.Fatalf("rotate token: %v", err)
+	}
+
+	// Force grace expired and hard TTL expired.
+	if _, err := db.Exec(`
+		UPDATE actuators
+		SET token_rotation_expires_at = datetime('now', '-1 hour'),
+		    pending_recovery_expires_at = datetime('now', '-1 minute')
+		WHERE id = ?
+	`, actuator.ID); err != nil {
+		t.Fatalf("force expiry windows: %v", err)
+	}
+
+	found, err := db.GetActuatorByToken(oldToken)
+	if err != nil {
+		t.Fatalf("stale actuator lookup: %v", err)
+	}
+	if found != nil {
+		t.Fatal("expected stale actuator token rejected after hard TTL")
+	}
+
+	fresh, err := db.GetActuatorByID(actuator.ID)
+	if err != nil {
+		t.Fatalf("read actuator: %v", err)
+	}
+	if fresh.PrevTokenHash.Valid || fresh.PendingEncryptedToken.Valid || fresh.PendingRotationID.Valid {
+		t.Fatal("expected expired pending rotation state to be cleared")
 	}
 }
