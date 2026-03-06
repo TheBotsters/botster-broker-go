@@ -118,6 +118,15 @@ func decrypt(encodedCiphertext, hexKey string) ([]byte, error) {
 	return plaintext, nil
 }
 
+// DecryptToken decrypts an AES-256-GCM encrypted token using the given hex master key.
+func DecryptToken(encryptedToken, masterKey string) (string, error) {
+	plaintext, err := decrypt(encryptedToken, masterKey)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
 // CreateSecret stores an encrypted secret.
 func (db *DB) CreateSecret(accountID, name, provider, value, masterKey string) (*Secret, error) {
 	id := generateID()

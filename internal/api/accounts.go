@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/siofra-seksbot/botster-broker-go/internal/db"
@@ -416,17 +417,18 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	newToken, err := s.DB.RotateAgentToken(agentID)
+	newToken, err := s.DB.RotateAgentToken(agentID, 15*time.Minute, s.MasterKey)
 	if err != nil {
 		jsonError(w, 500, "Failed to rotate token")
 		return
 	}
-	
+
+	s.Hub.NotifyAgentTokenRotated(agentID, newToken)
 	s.DB.LogAudit(&accountID, &agentID, nil, "agent.rotate-token", target.Name)
 	jsonResponse(w, 200, map[string]interface{}{
 		"ok":    true,
 		"token": newToken,
-		"note":  "Token rotated. Update all services using the old token immediately.",
+		"note":  "Token rotated. Old token valid for 15-minute grace period.",
 	})
 }
 
