@@ -605,7 +605,7 @@ func (h *Hub) RequireBrokerToken(token string) func(http.Handler) http.Handler {
 	}
 }
 
-// HandleSecretGet handles POST /v1/secrets/get for broker-owned in-memory secrets.
+// HandleSecretGet handles POST /v1/broker/secrets/get for broker-owned in-memory secrets.
 func (h *Hub) HandleSecretGet(store *SecretsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

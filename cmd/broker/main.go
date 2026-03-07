@@ -95,7 +95,7 @@ func main() {
 		// Fallback for local/dev where only MASTER_KEY is set
 		brokerToken = cfg.MasterKey
 	}
-	router.With(wsHub.RequireBrokerToken(brokerToken)).Post("/v1/secrets/get", wsHub.HandleSecretGet(brokerSecrets))
+	router.With(wsHub.RequireBrokerToken(brokerToken)).Post("/v1/broker/secrets/get", wsHub.HandleSecretGet(brokerSecrets))
 
 	// WebSocket endpoint
 	router.HandleFunc("/ws", wsHub.HandleWebSocket)
