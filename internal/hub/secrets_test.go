@@ -17,11 +17,11 @@ func TestSecretsGetEndpointReturnsKnownKey(t *testing.T) {
 	})
 
 	r := chi.NewRouter()
-	r.With(h.RequireBrokerToken("test-broker-token")).Post("/v1/secrets/get", h.HandleSecretGet(store))
+	r.With(h.RequireBrokerToken("test-broker-token")).Post("/v1/broker/secrets/get", h.HandleSecretGet(store))
 
 	body := map[string]string{"key": "openai:embedding"}
 	b, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/v1/secrets/get", bytes.NewReader(b))
+	req := httptest.NewRequest(http.MethodPost, "/v1/broker/secrets/get", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer test-broker-token")
 
