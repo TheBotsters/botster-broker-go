@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
+	"github.com/TheBotsters/botster-broker-go/internal/hub"
 )
 
 // POST /v1/notify/{agentName} — root only

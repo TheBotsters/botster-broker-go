@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
-	"github.com/siofra-seksbot/botster-broker-go/internal/config"
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
-	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
-	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/config"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/hub"
+	"github.com/TheBotsters/botster-broker-go/internal/tap"
 )
 
 // Server holds dependencies for API handlers.
@@ -90,6 +90,9 @@ func (s *Server) NewRouter() chi.Router {
 
 		// Agent group assignment (root only)
 		r.Post("/agents/{id}/assign-group", s.handleAssignAgentToGroup)
+
+		// Interchange export (root only)
+		r.Get("/export", s.handleExportInterchange)
 
 		// Secret management (root or admin scoped)
 		r.Post("/secrets", s.handleCreateSecret)

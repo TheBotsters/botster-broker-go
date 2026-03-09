@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
 )
 
 // SyncPeer represents a configured sync peer in the database.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 func verifyImport(dest *db.DB, masterKey string) {

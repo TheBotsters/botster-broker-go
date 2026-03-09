@@ -13,11 +13,11 @@ import (
 	"time"
 	"strconv"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/api"
-	"github.com/siofra-seksbot/botster-broker-go/internal/config"
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
-	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
-	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
+	"github.com/TheBotsters/botster-broker-go/internal/api"
+	"github.com/TheBotsters/botster-broker-go/internal/config"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/hub"
+	"github.com/TheBotsters/botster-broker-go/internal/tap"
 )
 
 func main() {

@@ -19,7 +19,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
 )
 
 // Agent represents a brain agent in the broker.
