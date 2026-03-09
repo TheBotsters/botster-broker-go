@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 const testMasterKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

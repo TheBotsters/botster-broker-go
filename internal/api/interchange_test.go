@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 func testDB(t *testing.T) *db.DB {

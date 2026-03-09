@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 func WriteExportJSONL(w io.Writer, database *db.DB, masterKey, source string, now time.Time) error {
