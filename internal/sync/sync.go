@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/config"
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/config"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 // SyncResult represents the result of a sync operation.

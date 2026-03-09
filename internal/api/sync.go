@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
-	"github.com/siofra-seksbot/botster-broker-go/internal/config"
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
-	syncpkg "github.com/siofra-seksbot/botster-broker-go/internal/sync"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/config"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
+	syncpkg "github.com/TheBotsters/botster-broker-go/internal/sync"
 )
 
 // SyncImportRequest represents the request to import sync data from a peer.

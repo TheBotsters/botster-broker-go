@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 // requireRoot checks that the request carries the master key in X-Admin-Key.

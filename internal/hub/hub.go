@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
 )
 
 // Message types for the WebSocket protocol.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
 )
 
 // handleInferenceStream handles GET /api/inference/stream
