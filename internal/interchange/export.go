@@ -59,11 +59,12 @@ func WriteExportJSONL(w io.Writer, database *db.DB, masterKey, source string, no
 				return fmt.Errorf("list grants for secret %s: %w", sec.Name, err)
 			}
 			if err := enc.Encode(Secret{
-				Type:     TypeSecret,
-				Name:     sec.Name,
-				Value:    val,
-				Provider: sec.Provider,
-				Grants:   grants,
+				Type:         TypeSecret,
+				Name:         sec.Name,
+				AccountEmail: acc.Email,
+				Value:        val,
+				Provider:     sec.Provider,
+				Grants:       grants,
 			}); err != nil {
 				return fmt.Errorf("encode secret %s: %w", sec.Name, err)
 			}
