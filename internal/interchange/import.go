@@ -130,6 +130,15 @@ func PlanImport(database *db.DB, doc Document, overwriteSecrets bool) (ImportRes
 
 func ExecuteImport(database *db.DB, masterKey string, doc Document, overwriteSecrets bool) (ImportResult, error) {
 	res := ImportResult{Warnings: append([]string{}, doc.Warnings...)}
+	if _, err := database.Exec("BEGIN IMMEDIATE"); err != nil {
+		return res, fmt.Errorf("begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = database.Exec("ROLLBACK")
+		}
+	}()
 	accountByEmail := map[string]*db.Account{}
 	agentByAccountAndName := map[string]*db.Agent{}
 
@@ -252,5 +261,9 @@ func ExecuteImport(database *db.DB, masterKey string, doc Document, overwriteSec
 			res.SecretsCreate++
 		}
 	}
+	if _, err := database.Exec("COMMIT"); err != nil {
+		return res, fmt.Errorf("commit tx: %w", err)
+	}
+	committed = true
 	return res, nil
 }

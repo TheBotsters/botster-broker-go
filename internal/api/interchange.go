@@ -24,10 +24,12 @@ var importConfirmStore = struct {
 	m map[string]*importConfirmEntry
 }{m: map[string]*importConfirmEntry{}}
 
-func newConfirmToken() string {
+func newConfirmToken() (string, error) {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return "itk_" + hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "itk_" + hex.EncodeToString(b), nil
 }
 
 // GET /api/export — root only
@@ -58,6 +60,7 @@ func (s *Server) handleImportInterchange(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		jsonError(w, 400, "invalid body")
@@ -78,7 +81,11 @@ func (s *Server) handleImportInterchange(w http.ResponseWriter, r *http.Request)
 			jsonError(w, 500, "plan failed: "+err.Error())
 			return
 		}
-		tok := newConfirmToken()
+		tok, tokErr := newConfirmToken()
+		if tokErr != nil {
+			jsonError(w, 500, "failed to generate confirm token")
+			return
+		}
 		expires := time.Now().UTC().Add(5 * time.Minute)
 		importConfirmStore.Lock()
 		importConfirmStore.m[tok] = &importConfirmEntry{BodyHash: hash, OverwriteSecrets: overwriteSecrets, ExpiresAt: expires}
