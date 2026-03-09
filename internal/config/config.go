@@ -15,26 +15,28 @@ type SyncPeerConfig struct {
 	SourceURL    string            `json:"source_url"`
 	SyncToken    string            `json:"sync_token"`
 	TransitKeyID string            `json:"transit_key_id"`
-	TransitKey   string            `json:"transit_key"`   // 64-char hex
-	AccountMap   map[string]string `json:"account_map"`   // source_id → local_id
+	TransitKey   string            `json:"transit_key"` // 64-char hex
+	AccountMap   map[string]string `json:"account_map"` // source_id → local_id
 }
 
 // Config holds all broker configuration.
 type Config struct {
-	Port      int
-	DBPath    string
-	MasterKey string // 64-char hex string for AES-256-GCM
-	AdminKey  string // Optional admin API key
-	SyncPeers []SyncPeerConfig
+	Port        int
+	DBPath      string
+	MasterKey   string // 64-char hex string for AES-256-GCM
+	AdminKey    string // Optional admin API key
+	AllowImport bool   // Enable /api/import endpoint behavior
+	SyncPeers   []SyncPeerConfig
 }
 
 // Load reads configuration from environment variables with sensible defaults.
 func Load() (*Config, error) {
 	c := &Config{
-		Port:      8787,
-		DBPath:    "data/broker.db",
-		MasterKey: os.Getenv("MASTER_KEY"),
-		AdminKey:  os.Getenv("ADMIN_KEY"),
+		Port:        8787,
+		DBPath:      "data/broker.db",
+		MasterKey:   os.Getenv("MASTER_KEY"),
+		AdminKey:    os.Getenv("ADMIN_KEY"),
+		AllowImport: os.Getenv("ALLOW_IMPORT") == "true",
 	}
 
 	if p := os.Getenv("PORT"); p != "" {

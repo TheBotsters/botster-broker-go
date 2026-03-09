@@ -30,11 +30,12 @@ type Agent struct {
 }
 
 type Secret struct {
-	Type     string   `json:"_type"`
-	Name     string   `json:"name"`
-	Value    string   `json:"value"`
-	Provider string   `json:"provider,omitempty"`
-	Grants   []string `json:"grants,omitempty"`
+	Type         string   `json:"_type"`
+	Name         string   `json:"name"`
+	AccountEmail string   `json:"account_email,omitempty"`
+	Value        string   `json:"value"`
+	Provider     string   `json:"provider,omitempty"`
+	Grants       []string `json:"grants,omitempty"`
 }
 
 type Document struct {
