@@ -315,6 +315,31 @@ func (db *DB) AgentHasSecretAccess(agentID, secretName string) (bool, error) {
 	return count > 0, err
 }
 
+// ListSecretGrantAgentNames returns sorted agent names granted to a secret.
+func (db *DB) ListSecretGrantAgentNames(secretID string) ([]string, error) {
+	rows, err := db.Query(`
+		SELECT a.name
+		FROM secret_access sa
+		JOIN agents a ON a.id = sa.agent_id
+		WHERE sa.secret_id = ?
+		ORDER BY a.name
+	`, secretID)
+	if err != nil {
+		return nil, fmt.Errorf("query secret grants: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan secret grant: %w", err)
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
 // UpdateSecret updates an existing secret's encrypted value.
 // Used to persist refreshed OAuth tokens.
 func (db *DB) UpdateSecret(accountID, name, newValue, masterKey string) error {

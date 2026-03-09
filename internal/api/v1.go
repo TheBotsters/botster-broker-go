@@ -91,6 +91,9 @@ func (s *Server) NewRouter() chi.Router {
 		// Agent group assignment (root only)
 		r.Post("/agents/{id}/assign-group", s.handleAssignAgentToGroup)
 
+		// Interchange export (root only)
+		r.Get("/export", s.handleExportInterchange)
+
 		// Secret management (root or admin scoped)
 		r.Post("/secrets", s.handleCreateSecret)
 		r.Put("/secrets/{id}", s.handleUpdateSecret)
