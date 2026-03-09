@@ -51,8 +51,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
-	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/tap"
 )
 
 // ─── Round-Robin State ─────────────────────────────────────────────────────────

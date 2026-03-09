@@ -1,4 +1,4 @@
-module github.com/siofra-seksbot/botster-broker-go
+module github.com/TheBotsters/botster-broker-go
 
 go 1.24.0
 

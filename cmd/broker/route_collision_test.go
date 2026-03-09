@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/api"
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
-	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
+	"github.com/TheBotsters/botster-broker-go/internal/api"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/hub"
 )
 
 func TestSecretsRoutesAuthDomains(t *testing.T) {

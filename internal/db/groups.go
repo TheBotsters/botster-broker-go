@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
 )
 
 // Group represents a group of agents with a shared admin key.

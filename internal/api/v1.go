@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/siofra-seksbot/botster-broker-go/internal/auth"
-	"github.com/siofra-seksbot/botster-broker-go/internal/config"
-	"github.com/siofra-seksbot/botster-broker-go/internal/db"
-	"github.com/siofra-seksbot/botster-broker-go/internal/hub"
-	"github.com/siofra-seksbot/botster-broker-go/internal/tap"
+	"github.com/TheBotsters/botster-broker-go/internal/auth"
+	"github.com/TheBotsters/botster-broker-go/internal/config"
+	"github.com/TheBotsters/botster-broker-go/internal/db"
+	"github.com/TheBotsters/botster-broker-go/internal/hub"
+	"github.com/TheBotsters/botster-broker-go/internal/tap"
 )
 
 // Server holds dependencies for API handlers.
