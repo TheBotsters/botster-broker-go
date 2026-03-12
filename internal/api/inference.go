@@ -359,7 +359,19 @@ func (s *Server) persistOpenAIBundle(accountID string, bundle *openAIOAuthBundle
 
 // resolveInferenceKeys returns all decrypted API keys for a provider (round-robin ready).
 // Returns (keys, httpStatus, errMsg). httpStatus=0 means success.
+// Checks the providers table first, falls back to hardcoded inferenceProviders map.
 func (s *Server) resolveInferenceKeys(agent *inferenceAgentInfo, provider string) ([]string, int, string) {
+	// Try providers table first
+	dbProvider, err := s.DB.GetProviderByName(agent.AccountID, provider)
+	if err == nil && dbProvider != nil {
+		keys, err := s.DB.GetSecretsByPrefix(agent.AccountID, dbProvider.SecretName, s.MasterKey)
+		if err != nil || len(keys) == 0 {
+			return nil, http.StatusNotFound, fmt.Sprintf("no %s API key configured. Store secret '%s' in the broker.", provider, dbProvider.SecretName)
+		}
+		return keys, 0, ""
+	}
+
+	// Fallback to hardcoded map
 	cfg, ok := inferenceProviders[provider]
 	if !ok {
 		return nil, http.StatusBadRequest, fmt.Sprintf("unsupported provider: %s", provider)
@@ -559,10 +571,22 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, ok := inferenceProviders[providerName]
-	if !ok {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("unsupported provider: %s. Supported: anthropic, openai, xai", providerName))
-		return
+	// Look up provider config — try providers table, fallback to hardcoded
+	var cfg providerConfig
+	dbProv, _ := s.DB.GetProviderByName(agent.AccountID, providerName)
+	if dbProv != nil {
+		cfg = providerConfig{BaseURL: dbProv.BaseURL, Path: "", SecretName: dbProv.SecretName}
+		// Infer path from hardcoded if available
+		if hc, ok := inferenceProviders[providerName]; ok {
+			cfg.Path = hc.Path
+		}
+	} else {
+		var ok bool
+		cfg, ok = inferenceProviders[providerName]
+		if !ok {
+			jsonError(w, http.StatusBadRequest, fmt.Sprintf("unsupported provider: %s", providerName))
+			return
+		}
 	}
 
 	// Check scoped capability for this provider
@@ -1260,8 +1284,26 @@ func (s *Server) handleInferenceProviders(w http.ResponseWriter, r *http.Request
 		SecretName string `json:"secretName"`
 	}
 
-	result := make([]providerStatus, 0, len(inferenceProviders))
+	// Collect from providers table first
+	seen := make(map[string]bool)
+	result := make([]providerStatus, 0)
+
+	dbProviders, _ := s.DB.ListProviders(agent.AccountID)
+	for _, p := range dbProviders {
+		_, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, p.SecretName, s.MasterKey)
+		result = append(result, providerStatus{
+			Name:       p.Name,
+			Configured: err == nil,
+			SecretName: p.SecretName,
+		})
+		seen[p.Name] = true
+	}
+
+	// Fallback: add hardcoded providers not already in the table
 	for name, cfg := range inferenceProviders {
+		if seen[name] {
+			continue
+		}
 		_, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, cfg.SecretName, s.MasterKey)
 		result = append(result, providerStatus{
 			Name:       name,
