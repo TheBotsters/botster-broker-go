@@ -28,14 +28,13 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		BaseURL     string `json:"base_url"`
 		AuthType    string `json:"auth_type"`
 		AuthHeader  string `json:"auth_header"`
-		SecretName  string `json:"secret_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, 400, "Invalid request body")
 		return
 	}
-	if body.AccountID == "" || body.Name == "" || body.BaseURL == "" || body.SecretName == "" {
-		jsonError(w, 400, "account_id, name, base_url, and secret_name required")
+	if body.AccountID == "" || body.Name == "" || body.BaseURL == "" {
+		jsonError(w, 400, "account_id, name, and base_url required")
 		return
 	}
 	if body.DisplayName == "" {
@@ -53,7 +52,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, err := s.DB.CreateProvider(body.AccountID, body.Name, body.DisplayName, body.BaseURL, body.AuthType, body.AuthHeader, body.SecretName)
+	provider, err := s.DB.CreateProvider(body.AccountID, body.Name, body.DisplayName, body.BaseURL, body.AuthType, body.AuthHeader)
 	if err != nil {
 		jsonError(w, 409, "Provider creation failed (name may exist)")
 		return
@@ -117,7 +116,6 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		BaseURL     string `json:"base_url"`
 		AuthType    string `json:"auth_type"`
 		AuthHeader  string `json:"auth_header"`
-		SecretName  string `json:"secret_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, 400, "Invalid request body")
@@ -136,11 +134,9 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	if body.AuthHeader == "" {
 		body.AuthHeader = provider.AuthHeader
 	}
-	if body.SecretName == "" {
-		body.SecretName = provider.SecretName
-	}
+	
 
-	if err := s.DB.UpdateProvider(providerID, body.DisplayName, body.BaseURL, body.AuthType, body.AuthHeader, body.SecretName); err != nil {
+	if err := s.DB.UpdateProvider(providerID, body.DisplayName, body.BaseURL, body.AuthType, body.AuthHeader); err != nil {
 		jsonError(w, 500, "Failed to update provider")
 		return
 	}

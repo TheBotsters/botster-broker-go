@@ -227,7 +227,7 @@ func TestGetSecretForAgentACLPolicy(t *testing.T) {
 	}
 
 	// Once ACL rows exist, access becomes explicit allow-list.
-	if err := db.GrantSecretAccess(secret.ID, a1.ID); err != nil {
+	if _, err := db.Exec("INSERT OR IGNORE INTO secret_access (id, secret_id, agent_id) VALUES ('test1', ?, ?)", secret.ID, a1.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.GetSecretForAgent(acc.ID, a1.ID, secret.Name, testMasterKey); err != nil {
@@ -237,7 +237,7 @@ func TestGetSecretForAgentACLPolicy(t *testing.T) {
 		t.Fatalf("agent-2 should be denied once ACL is enabled and not granted")
 	}
 
-	if err := db.GrantSecretAccess(secret.ID, a2.ID); err != nil {
+	if _, err := db.Exec("INSERT OR IGNORE INTO secret_access (id, secret_id, agent_id) VALUES ('test2', ?, ?)", secret.ID, a2.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.GetSecretForAgent(acc.ID, a2.ID, secret.Name, testMasterKey); err != nil {
@@ -254,7 +254,7 @@ func TestGetSecretForAgentWrongMasterKeyLooksLikeAccessDenied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.GrantSecretAccess(secret.ID, agent.ID); err != nil {
+	if _, err := db.Exec("INSERT OR IGNORE INTO secret_access (id, secret_id, agent_id) VALUES ('test3', ?, ?)", secret.ID, agent.ID); err != nil {
 		t.Fatal(err)
 	}
 

@@ -162,8 +162,6 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/api/agents", s.handleWebSecretsAgents)
 		r.Post("/api/create", s.handleWebSecretsCreate)
 		r.Put("/api/{id}", s.handleWebSecretsUpdate)
-		r.Post("/api/{id}/grant", s.handleWebSecretsGrant)
-		r.Delete("/api/{id}/grant/{agentId}", s.handleWebSecretsRevoke)
 	})
 
 	// Dashboard (session auth required)
@@ -238,7 +236,6 @@ func checkScopedCapability(r *http.Request, requiredCap string) bool {
 	return false
 }
 
-// secretNameToCapability maps a secret name to its required scoped capability.
 func secretNameToCapability(name string) string {
 	upper := strings.ToUpper(name)
 	switch {
@@ -344,38 +341,6 @@ func (s *Server) handleSecretsGet(w http.ResponseWriter, r *http.Request) {
 
 	s.DB.LogAudit(&accountID, nil, nil, "secret_access.dashboard", body.Name)
 	jsonResponse(w, 200, map[string]string{"name": body.Name, "value": value})
-}
-
-func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
-	agent := s.authenticateAgent(w, r)
-	if agent == nil {
-		return
-	}
-
-	secrets, err := s.DB.ListSecrets(agent.AccountID)
-	if err != nil {
-		jsonError(w, 500, "Failed to list secrets")
-		return
-	}
-
-	// Return names only, not values.
-	// For scoped tokens, filter to secrets matching their capabilities.
-	caps := getScopedCaps(r)
-	names := make([]map[string]string, 0, len(secrets))
-	for _, sec := range secrets {
-		if caps != nil {
-			required := secretNameToCapability(sec.Name)
-			if required != "" && !checkScopedCapability(r, required) {
-				continue // hide secrets outside scope
-			}
-		}
-		names = append(names, map[string]string{
-			"id":       sec.ID,
-			"name":     sec.Name,
-			"provider": sec.Provider,
-		})
-	}
-	jsonResponse(w, 200, names)
 }
 
 func (s *Server) handleActuatorsList(w http.ResponseWriter, r *http.Request) {

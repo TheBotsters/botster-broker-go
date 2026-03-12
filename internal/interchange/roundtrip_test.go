@@ -67,15 +67,12 @@ func TestRoundTripExportImportExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent, _, err := src.CreateAgent(acc.ID, "rt-agent")
+	_, _, err = src.CreateAgent(acc.ID, "rt-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sec, err := src.CreateSecret(acc.ID, "OPENAI_API_KEY", "openai", "sk-roundtrip", rtMasterKey)
+	_, err = src.CreateSecret(acc.ID, "OPENAI_API_KEY", "openai", "sk-roundtrip", rtMasterKey)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := src.GrantSecretAccess(sec.ID, agent.ID); err != nil {
 		t.Fatal(err)
 	}
 

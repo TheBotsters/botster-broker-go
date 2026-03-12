@@ -290,21 +290,6 @@ func (db *DB) DeleteSecret(id string) error {
 }
 
 // GrantSecretAccess gives an agent access to a secret.
-func (db *DB) GrantSecretAccess(secretID, agentID string) error {
-	id := generateID()
-	_, err := db.Exec(`
-		INSERT OR IGNORE INTO secret_access (id, secret_id, agent_id) VALUES (?, ?, ?)
-	`, id, secretID, agentID)
-	return err
-}
-
-// RevokeSecretAccess removes an agent's access to a secret.
-func (db *DB) RevokeSecretAccess(secretID, agentID string) error {
-	_, err := db.Exec(`DELETE FROM secret_access WHERE secret_id = ? AND agent_id = ?`, secretID, agentID)
-	return err
-}
-
-// AgentHasSecretAccess checks if an agent can access a specific secret.
 func (db *DB) AgentHasSecretAccess(agentID, secretName string) (bool, error) {
 	var count int
 	err := db.QueryRow(`
