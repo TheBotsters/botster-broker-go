@@ -144,6 +144,11 @@ func (s *Server) NewRouter() chi.Router {
 			http.ServeFile(w, r, "web/secrets.html")
 		})
 		r.Get("/api/list", s.handleWebSecretsList)
+		r.Get("/api/agents", s.handleWebSecretsAgents)
+		r.Post("/api/create", s.handleWebSecretsCreate)
+		r.Put("/api/{id}", s.handleWebSecretsUpdate)
+		r.Post("/api/{id}/grant", s.handleWebSecretsGrant)
+		r.Delete("/api/{id}/grant/{agentId}", s.handleWebSecretsRevoke)
 	})
 
 	// Dashboard (session auth required)
@@ -656,12 +661,14 @@ func (s *Server) handleWebSecretsList(w http.ResponseWriter, r *http.Request) {
 	// Return secret metadata (no encrypted values)
 	result := make([]map[string]interface{}, 0, len(secrets))
 	for _, sec := range secrets {
+		grants, _ := s.DB.ListSecretGrantAgentNames(sec.ID)
 		result = append(result, map[string]interface{}{
 			"id":         sec.ID,
 			"name":       sec.Name,
 			"provider":   sec.Provider,
 			"created_at": sec.CreatedAt,
 			"updated_at": sec.UpdatedAt,
+			"grants":     grants,
 		})
 	}
 	jsonResponse(w, 200, result)
