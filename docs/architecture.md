@@ -84,18 +84,19 @@ Key property: **actuators are interchangeable.** The agent says "run this comman
 
 ### Providers
 
-A provider represents an external service that agents interact with through the Spine. Each provider is configured with:
+A provider represents the API shape of an external service — where it lives and how it accepts authentication. This is public knowledge.
 
 | Field | Purpose | Example |
 |-------|---------|---------|
-| `name` | Identifier used in API calls | `github` |
+| `name` | Identifier | `github` |
 | `display_name` | Human-readable label | `GitHub` |
 | `base_url` | URL prefix for request validation | `https://api.github.com` |
 | `auth_type` | How credentials are injected | `bearer`, `basic`, or `header` |
 | `auth_header` | Header name for credential injection | `Authorization` (default) |
-| `secret_name` | Which secret to resolve for this provider | `GITHUB_PAT` |
 
-Providers are **configurable via the management API** — not hardcoded. Adding support for a new external service means creating a provider record and storing the corresponding secret. No code changes required.
+A provider does **not** reference any secret. Multiple credentials can exist for the same provider (e.g., three GitHub PATs for different orgs). The binding between a provider and a specific credential is a **capability**.
+
+Providers are configurable via the management API. Adding a new external service means creating a provider record. No code changes required.
 
 ### Secrets
 
@@ -133,18 +134,18 @@ When an agent needs to call an external API:
 
 ```
 1. Agent → POST /v1/proxy/request
-   {"provider": "github", "method": "GET", "url": "https://api.github.com/user/repos"}
+   {"capability": "github-botsters", "method": "GET", "url": "https://api.github.com/user/repos"}
 
 2. Spine authenticates agent token
-3. Spine looks up provider "github" in providers table
-   → base_url: https://api.github.com
-   → auth_type: bearer
-   → secret_name: GITHUB_PAT
 
-4. Spine validates request URL starts with provider's base_url
+3. Spine looks up capability "github-botsters" for this account
+   → provider: github (base_url: https://api.github.com, auth_type: bearer)
+   → secret: BOTSTERS_GITHUB_PAT
+
+4. Spine checks capability_grants for (capability_id, agent_id)
+
+5. Spine validates request URL starts with provider's base_url
    (prevents agent from using a GitHub capability to hit an arbitrary URL)
-
-5. Spine checks agent has access to secret "GITHUB_PAT" via secret_access table
 
 6. Spine decrypts secret value in-memory (never written to disk unencrypted)
 
@@ -154,7 +155,7 @@ When an agent needs to call an external API:
 8. Spine makes HTTP request to https://api.github.com/user/repos
 
 9. Spine logs to audit_log:
-   agent=nira, action=proxy.request, detail="github: GET /user/repos → 200 OK"
+   agent=nira, capability=github-botsters, detail="GET /user/repos → 200 OK"
 
 10. Spine returns response to agent (headers + body, no credentials)
 ```
@@ -197,7 +198,7 @@ Authenticated with agent bearer token. These are the endpoints agents and agent 
 |--------|------|---------|
 | `POST` | `/v1/capabilities` | List capabilities (providers agent can access) |
 | `POST` | `/v1/proxy/request` | Proxy HTTP request with credential injection |
-| `POST` | `/v1/secrets/list` | List secret names visible to agent (no values) |
+
 | `POST` | `/v1/tokens/scoped` | Mint short-lived capability-scoped token |
 | `GET` | `/v1/actuators` | List actuators for agent's account |
 | `POST` | `/v1/actuator/select` | Select which actuator receives commands |
@@ -234,8 +235,12 @@ Authenticated with master key (`X-API-Key` header) or admin agent token. Used by
 | `DELETE` | `/api/actuators/{id}` | Delete actuator |
 | `POST` | `/api/secrets` | Create secret |
 | `PUT` | `/api/secrets/{id}` | Update secret value |
-| `POST` | `/api/secrets/{id}/grant` | Grant agent access to secret |
-| `DELETE` | `/api/secrets/{id}/grant/{agentId}` | Revoke agent access |
+| `POST` | `/api/capabilities` | Create capability (bind name → provider + secret) |
+| `GET` | `/api/capabilities` | List capabilities |
+| `PUT` | `/api/capabilities/{id}` | Update capability |
+| `DELETE` | `/api/capabilities/{id}` | Delete capability |
+| `POST` | `/api/capabilities/{id}/grant` | Grant capability to agent |
+| `DELETE` | `/api/capabilities/{id}/grant/{agentId}` | Revoke capability from agent |
 | `POST` | `/api/secrets/get` | Retrieve decrypted secret value (dashboard only) |
 | `GET` | `/api/audit` | Query audit log |
 | `GET` | `/api/inference/stream` | Inference tap SSE stream |
@@ -266,7 +271,7 @@ Togglable from the dashboard UI. It's the "big red button" — if an agent is mi
 | Secrets encrypted at rest | AES-256-GCM with broker master key |
 | Agents can't see secrets | No agent-facing endpoint returns secret values |
 | URL validation | Proxy rejects URLs not matching provider's `base_url` prefix |
-| Per-agent access control | `secret_access` table: explicit grants per secret per agent |
+| Per-agent access control | `capability_grants` table: explicit grants per capability per agent |
 | Comprehensive audit trail | Every proxy request and command logged with full context |
 | Token rotation | Grace period + single-use recovery path for zero-downtime rotation |
 | Emergency stop | Global and per-agent safe mode, instant effect |
