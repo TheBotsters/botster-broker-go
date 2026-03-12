@@ -43,7 +43,6 @@ func (s *Server) NewRouter() chi.Router {
 
 	// V1 API
 	r.Route("/v1", func(r chi.Router) {
-		r.Post("/secrets/get", s.handleSecretsGet)
 		r.Post("/secrets/list", s.handleSecretsList)
 		r.Post("/tokens/scoped", s.handleCreateScopedToken)
 		r.Get("/actuators", s.handleActuatorsList)
@@ -58,6 +57,8 @@ func (s *Server) NewRouter() chi.Router {
 		r.Post("/proxy/anthropic/*", s.handleProxyAnthropic)
 		r.Post("/proxy/openai/*", s.handleProxyOpenAI)
 		r.Post("/web/search", s.handleWebSearch)
+		r.Post("/capabilities", s.handleCapabilities)
+		r.Post("/proxy/request", s.handleProxyRequest)
 		// Notify (root only)
 		r.Post("/notify/{agentName}", s.handleNotify)
 	})
@@ -95,11 +96,20 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/export", s.handleExportInterchange)
 		r.Post("/import", s.handleImportInterchange)
 
+		// Secret retrieval (dashboard only — not agent-facing)
+		r.Post("/secrets/get", s.handleSecretsGet)
+
 		// Secret management (root or admin scoped)
 		r.Post("/secrets", s.handleCreateSecret)
 		r.Put("/secrets/{id}", s.handleUpdateSecret)
 		r.Post("/secrets/{id}/grant", s.handleGrantSecretAccess)
 		r.Delete("/secrets/{id}/grant/{agentId}", s.handleRevokeSecretAccess)
+
+		// Provider management (root or admin scoped)
+		r.Post("/providers", s.handleCreateProvider)
+		r.Get("/providers", s.handleListProviders)
+		r.Put("/providers/{id}", s.handleUpdateProvider)
+		r.Delete("/providers/{id}", s.handleDeleteProvider)
 
 		// Audit log (root or admin scoped)
 		r.Get("/audit", s.handleListAudit)
@@ -292,35 +302,42 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSecretsGet is dashboard/management only — agents cannot call this.
 func (s *Server) handleSecretsGet(w http.ResponseWriter, r *http.Request) {
-	agent := s.authenticateAgent(w, r)
-	if agent == nil {
+	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+	if !ok {
 		return
 	}
 
 	var body struct {
-		Name string `json:"name"`
+		AccountID string `json:"account_id"`
+		Name      string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 		jsonError(w, 400, "name required")
 		return
 	}
 
-	// Check scoped capability for this secret
-	if cap := secretNameToCapability(body.Name); cap != "" {
-		if !checkScopedCapability(r, cap) {
-			jsonError(w, 403, "Scoped token does not have capability: "+cap)
-			return
-		}
+	accountID := body.AccountID
+	if accountID == "" && !isRoot {
+		accountID = adminAgent.AccountID
+	}
+	if accountID == "" {
+		jsonError(w, 400, "account_id required")
+		return
+	}
+	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
+		jsonError(w, 403, "Forbidden: account scope violation")
+		return
 	}
 
-	value, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, body.Name, s.MasterKey)
+	value, err := s.DB.GetSecret(accountID, body.Name, s.MasterKey)
 	if err != nil {
 		jsonError(w, 404, "Secret not found or decrypt failed")
 		return
 	}
 
-	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "secret_access", body.Name)
+	s.DB.LogAudit(&accountID, nil, nil, "secret_access.dashboard", body.Name)
 	jsonResponse(w, 200, map[string]string{"name": body.Name, "value": value})
 }
 

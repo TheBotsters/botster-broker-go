@@ -188,6 +188,25 @@ var migrations = []migration{
 			ALTER TABLE actuators ADD COLUMN recovery_issued_at TEXT;
 		`,
 	},
+	{
+		version:     8,
+		description: "Add providers table for capability-based proxy",
+		sql: `
+			CREATE TABLE IF NOT EXISTS providers (
+				id TEXT PRIMARY KEY,
+				account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				display_name TEXT NOT NULL,
+				base_url TEXT NOT NULL,
+				auth_type TEXT NOT NULL DEFAULT 'bearer',
+				auth_header TEXT NOT NULL DEFAULT 'Authorization',
+				secret_name TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(account_id, name)
+			);
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.
