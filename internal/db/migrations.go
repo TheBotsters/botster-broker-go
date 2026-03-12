@@ -207,6 +207,30 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version:     9,
+		description: "Add capabilities and capability_grants tables",
+		sql: `
+			CREATE TABLE IF NOT EXISTS capabilities (
+				id TEXT PRIMARY KEY,
+				account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				display_name TEXT NOT NULL,
+				provider_id TEXT NOT NULL REFERENCES providers(id),
+				secret_id TEXT NOT NULL REFERENCES secrets(id),
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(account_id, name)
+			);
+
+			CREATE TABLE IF NOT EXISTS capability_grants (
+				id TEXT PRIMARY KEY,
+				capability_id TEXT NOT NULL REFERENCES capabilities(id) ON DELETE CASCADE,
+				agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(capability_id, agent_id)
+			);
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.

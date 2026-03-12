@@ -104,8 +104,8 @@ A secret is an encrypted credential stored in the Spine's SQLite database. Secre
 
 - **Encrypted at rest** with AES-256-GCM using the broker's master key
 - **Scoped to an account** (multi-tenant isolation)
-- **Linked to a provider** via the `provider` field and the provider's `secret_name`
-- **Grantable per-agent** via the `secret_access` table
+- **Tagged with a provider name** (for admin UI grouping, not for access control)
+
 
 The management API can retrieve decrypted secret values (for the dashboard UI, authenticated with session credentials). The agent-facing API **cannot** — there is no endpoint in `/v1/` that returns a secret value to an agent.
 

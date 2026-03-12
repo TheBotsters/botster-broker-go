@@ -185,39 +185,25 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get all providers for this account
-	providers, err := s.DB.ListProviders(agent.AccountID)
+	agentCaps, err := s.DB.ListAgentCapabilities(agent.AccountID, agent.ID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list providers")
+		jsonError(w, 500, "Failed to list capabilities")
 		return
 	}
 
-	// Get secrets this agent can access
-	accessibleSecrets := make(map[string]bool)
-	secrets, err := s.DB.ListSecrets(agent.AccountID)
-	if err == nil {
-		for _, sec := range secrets {
-			// Check if agent has access to this secret
-			val, getErr := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, sec.Name, s.MasterKey)
-			if getErr == nil && val != "" {
-				accessibleSecrets[sec.Name] = true
-			}
-		}
-	}
-
-	type capability struct {
-		Provider    string `json:"provider"`
+	type capResponse struct {
+		Name        string `json:"name"`
 		DisplayName string `json:"display_name"`
+		Provider    string `json:"provider"`
 	}
 
-	caps := make([]capability, 0)
-	for _, p := range providers {
-		if accessibleSecrets[p.SecretName] {
-			caps = append(caps, capability{
-				Provider:    p.Name,
-				DisplayName: p.DisplayName,
-			})
-		}
+	caps := make([]capResponse, 0, len(agentCaps))
+	for _, c := range agentCaps {
+		caps = append(caps, capResponse{
+			Name:        c.Name,
+			DisplayName: c.DisplayName,
+			Provider:    c.ProviderName,
+		})
 	}
 
 	jsonResponse(w, 200, map[string]interface{}{
@@ -236,38 +222,46 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Provider string            `json:"provider"`
-		Method   string            `json:"method"`
-		URL      string            `json:"url"`
-		Headers  map[string]string `json:"headers"`
-		Body     string            `json:"body"`
+		Capability string            `json:"capability"`
+		Method     string            `json:"method"`
+		URL        string            `json:"url"`
+		Headers    map[string]string `json:"headers"`
+		Body       string            `json:"body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, 400, "Invalid request body")
 		return
 	}
-	if body.Provider == "" || body.Method == "" || body.URL == "" {
-		jsonError(w, 400, "provider, method, and url required")
+	if body.Capability == "" || body.Method == "" || body.URL == "" {
+		jsonError(w, 400, "capability, method, and url required")
 		return
 	}
 
-	// Look up provider
-	provider, err := s.DB.GetProviderByName(agent.AccountID, body.Provider)
-	if err != nil || provider == nil {
-		jsonError(w, 404, "Provider not found: "+body.Provider)
+	// Look up capability (joins provider + secret)
+	cap, err := s.DB.GetCapabilityByName(agent.AccountID, body.Capability)
+	if err != nil || cap == nil {
+		jsonError(w, 404, "Capability not found: "+body.Capability)
+		return
+	}
+
+	// Check agent has been granted this capability
+	granted, err := s.DB.AgentHasCapability(cap.ID, agent.ID)
+	if err != nil || !granted {
+		jsonError(w, 403, "Agent does not have capability: "+body.Capability)
 		return
 	}
 
 	// Validate URL matches provider base_url
-	if !strings.HasPrefix(body.URL, provider.BaseURL) {
+	if !strings.HasPrefix(body.URL, cap.BaseURL) {
 		jsonError(w, 403, "URL does not match provider base URL")
 		return
 	}
 
-	// Check agent has access to the provider's secret
-	secretValue, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, provider.SecretName, s.MasterKey)
+	// Decrypt the secret value
+	secretValue, err := s.DB.GetSecret(agent.AccountID, cap.SecretName, s.MasterKey)
 	if err != nil {
-		jsonError(w, 403, "Agent does not have capability for provider: "+body.Provider)
+		log.Printf("[proxy/request] failed to decrypt secret for capability %s: %v", body.Capability, err)
+		jsonError(w, 500, "Failed to resolve credential for capability")
 		return
 	}
 
@@ -288,20 +282,20 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inject credentials based on provider auth type
-	switch provider.AuthType {
+	switch cap.AuthType {
 	case "bearer":
 		proxyReq.Header.Set("Authorization", "Bearer "+secretValue)
 	case "basic":
 		proxyReq.Header.Set("Authorization", "Basic "+secretValue)
 	case "header":
-		proxyReq.Header.Set(provider.AuthHeader, secretValue)
+		proxyReq.Header.Set(cap.AuthHeader, secretValue)
 	}
 
 	// Execute request
 	client := &http.Client{Timeout: 30 * 1000000000} // 30 seconds
 	resp, err := client.Do(proxyReq)
 	if err != nil {
-		log.Printf("[proxy/request] error for agent %s, provider %s: %v", agent.Name, body.Provider, err)
+		log.Printf("[proxy/request] error for agent %s, provider %s: %v", agent.Name, body.Capability, err)
 		jsonError(w, 502, "Upstream request failed: "+err.Error())
 		return
 	}
@@ -309,7 +303,7 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Audit log
 	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request",
-		body.Provider+": "+body.Method+" "+body.URL+" → "+http.StatusText(resp.StatusCode))
+		body.Capability+": "+body.Method+" "+body.URL+" → "+http.StatusText(resp.StatusCode))
 
 	// Stream response back
 	for k, vv := range resp.Header {

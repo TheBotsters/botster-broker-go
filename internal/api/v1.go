@@ -43,7 +43,6 @@ func (s *Server) NewRouter() chi.Router {
 
 	// V1 API
 	r.Route("/v1", func(r chi.Router) {
-		r.Post("/secrets/list", s.handleSecretsList)
 		r.Post("/tokens/scoped", s.handleCreateScopedToken)
 		r.Get("/actuators", s.handleActuatorsList)
 		r.Post("/actuator/select", s.handleActuatorSelect)
@@ -102,8 +101,14 @@ func (s *Server) NewRouter() chi.Router {
 		// Secret management (root or admin scoped)
 		r.Post("/secrets", s.handleCreateSecret)
 		r.Put("/secrets/{id}", s.handleUpdateSecret)
-		r.Post("/secrets/{id}/grant", s.handleGrantSecretAccess)
-		r.Delete("/secrets/{id}/grant/{agentId}", s.handleRevokeSecretAccess)
+
+		// Capability management (root or admin scoped)
+		r.Post("/capabilities", s.handleCreateCapability)
+		r.Get("/capabilities", s.handleListCapabilities)
+		r.Put("/capabilities/{id}", s.handleUpdateCapability)
+		r.Delete("/capabilities/{id}", s.handleDeleteCapability)
+		r.Post("/capabilities/{id}/grant", s.handleGrantCapability)
+		r.Delete("/capabilities/{id}/grant/{agentId}", s.handleRevokeCapability)
 
 		// Provider management (root or admin scoped)
 		r.Post("/providers", s.handleCreateProvider)
