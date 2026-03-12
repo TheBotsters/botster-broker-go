@@ -113,6 +113,11 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/groups/{id}/agents", s.handleListGroupAgents)
 	})
 
+	// Root redirects to dashboard
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+	})
+
 	// Login page redirect
 	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "web/login.html")
@@ -139,6 +144,17 @@ func (s *Server) NewRouter() chi.Router {
 			http.ServeFile(w, r, "web/secrets.html")
 		})
 		r.Get("/api/list", s.handleWebSecretsList)
+	})
+
+	// Dashboard (session auth required)
+	r.Route("/dashboard", func(r chi.Router) {
+		r.Use(s.requireAuth)
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, "web/index.html")
+		})
+		r.Get("/api/data", s.handleDashboardData)
+		r.Post("/api/safe", s.handleDashboardSafeToggle)
+		r.Post("/api/agents/{id}/safe", s.handleDashboardAgentSafeToggle)
 	})
 
 	// Sync routes

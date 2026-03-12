@@ -479,6 +479,14 @@ func (h *Hub) GetBrainConnection(agentID string) *Connection {
 	return h.brains[agentID]
 }
 
+// IsActuatorConnected returns true if the given actuator ID has an active WebSocket connection.
+func (h *Hub) IsActuatorConnected(actuatorID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.actuators[actuatorID]
+	return ok
+}
+
 // BufferWake stores a wake message for delivery when the agent's brain connects.
 // The message is indexed by agentID (not actuatorID, as brains connect via agent token).
 func (h *Hub) BufferWake(agentID, text, source, ts string) {
