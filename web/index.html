@@ -36,6 +36,8 @@
     nav a:hover { background: #161b22; }
     nav a.active { background: #1f6feb; color: white; }
     .user-bar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 0.85em; color: #8b949e; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
     #error { color: #da3633; margin: 10px 0; display: none; }
   </style>
 </head>
@@ -49,29 +51,44 @@
   <div class="subtitle">Brain · Spine · Actuator — secure agent infrastructure</div>
 
   <nav>
-    <a href="/" class="active">Dashboard</a>
+    <a href="#" class="active" data-tab="overview" onclick="switchTab('overview', this)">Overview</a>
+    <a href="#" data-tab="agents" onclick="switchTab('agents', this)">Agents</a>
+    <a href="#" data-tab="actuators" onclick="switchTab('actuators', this)">Actuators</a>
     <a href="/secrets">Secrets</a>
     <a href="/chat/">Chat</a>
   </nav>
 
-  <div id="safe-banner" class="safe-banner">⚠️ GLOBAL SAFE MODE ACTIVE — all commands blocked</div>
+  <div id="safe-banner" class="safe-banner">⚠️ SAFE MODE ACTIVE — all commands blocked</div>
   <div id="error"></div>
 
-  <div class="stats">
-    <div class="stat"><div class="num" id="agent-count">-</div><div class="label">Agents</div></div>
-    <div class="stat"><div class="num" id="actuator-count">-</div><div class="label">Actuators</div></div>
-    <div class="stat"><div class="num" id="secret-count">-</div><div class="label">Secrets</div></div>
-    <div class="stat"><div class="num" id="schema-version">-</div><div class="label">Schema</div></div>
+  <!-- Overview tab -->
+  <div id="tab-overview" class="tab-content active">
+    <div class="stats">
+      <div class="stat"><div class="num" id="agent-count">-</div><div class="label">Agents</div></div>
+      <div class="stat"><div class="num" id="actuator-count">-</div><div class="label">Actuators</div></div>
+      <div class="stat"><div class="num" id="secret-count">-</div><div class="label">Secrets</div></div>
+      <div class="stat"><div class="num" id="schema-version">-</div><div class="label">Schema</div></div>
+    </div>
+
+    <div class="row">
+      <h2>Status</h2>
+      <button id="toggle-global-safe" onclick="toggleGlobalSafe()">Safe Mode</button>
+    </div>
   </div>
 
-  <div class="row">
-    <h2>Agents</h2>
-    <button id="toggle-global-safe" onclick="toggleGlobalSafe()">Toggle Global Safe Mode</button>
+  <!-- Agents tab -->
+  <div id="tab-agents" class="tab-content">
+    <div class="row">
+      <h2>Agents</h2>
+    </div>
+    <div id="agents-list"></div>
   </div>
-  <div id="agents-list"></div>
 
-  <h2>Actuators</h2>
-  <div id="actuators-list"></div>
+  <!-- Actuators tab -->
+  <div id="tab-actuators" class="tab-content">
+    <h2>Actuators</h2>
+    <div id="actuators-list"></div>
+  </div>
 
   <script src="main.js"></script>
 </body>

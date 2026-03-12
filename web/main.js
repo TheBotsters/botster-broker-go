@@ -27,6 +27,15 @@ function showError(msg) {
   setTimeout(() => { el.style.display = 'none'; }, 5000);
 }
 
+// --- Tab switching ---
+
+function switchTab(tabName, el) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav a[data-tab]').forEach(a => a.classList.remove('active'));
+  document.getElementById('tab-' + tabName).classList.add('active');
+  if (el) el.classList.add('active');
+}
+
 // --- Render functions ---
 
 /** @param {object} agent @returns {string} */
@@ -68,7 +77,6 @@ function renderActuator(actuator) {
 // --- Data loading ---
 
 async function loadDashboard() {
-  // Check auth first
   const auth = await api('/auth/status');
   if (!auth || !auth.authenticated) {
     window.location.href = '/login';
@@ -76,7 +84,6 @@ async function loadDashboard() {
   }
   document.getElementById('user-email').textContent = auth.email;
 
-  // Load dashboard data (session-authenticated endpoints)
   const [health, dashboard] = await Promise.all([
     api('/health'),
     api('/dashboard/api/data'),
@@ -93,6 +100,16 @@ async function loadDashboard() {
 
     const banner = document.getElementById('safe-banner');
     banner.classList.toggle('active', !!dashboard.global_safe);
+
+    // Update safe mode button style
+    const safeBtn = document.getElementById('toggle-global-safe');
+    if (dashboard.global_safe) {
+      safeBtn.classList.add('danger');
+      safeBtn.textContent = 'Disable Safe Mode';
+    } else {
+      safeBtn.classList.remove('danger');
+      safeBtn.textContent = 'Safe Mode';
+    }
 
     if (dashboard.agents) {
       document.getElementById('agents-list').innerHTML = dashboard.agents.map(renderAgent).join('');
