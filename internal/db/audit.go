@@ -40,7 +40,12 @@ func (db *DB) ListAuditLog(accountID *string, limit int) ([]*AuditEntry, error) 
 	if limit <= 0 {
 		limit = 500
 	}
-	var rows interface{ Next() bool; Scan(...interface{}) error; Close() error; Err() error }
+	var rows interface {
+		Next() bool
+		Scan(...interface{}) error
+		Close() error
+		Err() error
+	}
 	var err error
 	if accountID != nil {
 		rows, err = db.Query(`

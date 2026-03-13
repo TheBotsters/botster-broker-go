@@ -138,8 +138,8 @@ func (s *Server) handleChatProxy(w http.ResponseWriter, r *http.Request) {
 			"minProtocol": 3,
 			"maxProtocol": 3,
 			"client": map[string]interface{}{
-				"id":      "openclaw-control-ui",
-				"version": "1.0.0",
+				"id":       "openclaw-control-ui",
+				"version":  "1.0.0",
 				"mode":     "webchat",
 				"platform": "web",
 			},

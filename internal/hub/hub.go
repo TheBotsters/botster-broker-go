@@ -32,7 +32,6 @@ const (
 	TypeTokenRotatedAck = "token_rotated_ack"
 )
 
-
 // Command status constants. These must match the status values expected by
 // OpenClaw (completed, failed, running, timeout) and the broker API (ok, sent).
 const (

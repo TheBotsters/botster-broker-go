@@ -56,7 +56,9 @@ func (s *Server) handleWebSecretsUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var body struct{ Value string `json:"value"` }
+	var body struct {
+		Value string `json:"value"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Value == "" {
 		jsonError(w, 400, "[BSA:SPINE/SECRETS] value required")
 		return

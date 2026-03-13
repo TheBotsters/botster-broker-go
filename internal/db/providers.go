@@ -12,8 +12,8 @@ type Provider struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name"`
 	BaseURL     string `json:"base_url"`
-	AuthType    string `json:"auth_type"`    // "bearer", "basic", "header"
-	AuthHeader  string `json:"auth_header"`  // header name (default "Authorization")
+	AuthType    string `json:"auth_type"`   // "bearer", "basic", "header"
+	AuthHeader  string `json:"auth_header"` // header name (default "Authorization")
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }

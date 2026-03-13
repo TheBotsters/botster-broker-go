@@ -18,14 +18,14 @@ const testMK = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 // setupCapabilityServer creates a test server with an account, agent (with token),
 // provider, secret, and capability. Returns what you need for tests.
 type capTestEnv struct {
-	server      *httptest.Server
-	accountID   string
-	agentID     string
-	agentToken  string
-	providerID  string
-	secretID    string
-	capID       string
-	capName     string
+	server     *httptest.Server
+	accountID  string
+	agentID    string
+	agentToken string
+	providerID string
+	secretID   string
+	capID      string
+	capName    string
 }
 
 func setupCapabilityServer(t *testing.T) *capTestEnv {

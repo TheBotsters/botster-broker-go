@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/TheBotsters/botster-broker-go/internal/auth"
 	"github.com/TheBotsters/botster-broker-go/internal/config"
 	"github.com/TheBotsters/botster-broker-go/internal/db"
 	syncpkg "github.com/TheBotsters/botster-broker-go/internal/sync"
+	"github.com/go-chi/chi/v5"
 )
 
 // SyncImportRequest represents the request to import sync data from a peer.
@@ -27,12 +27,12 @@ type SyncImportRequest struct {
 
 // SyncImportResponse represents the response from import sync.
 type SyncImportResponse struct {
-	OK      bool                     `json:"ok"`
-	DryRun  bool                     `json:"dry_run"`
-	Imported int                     `json:"imported"`
-	Skipped  int                     `json:"skipped"`
-	Errors  []string                 `json:"errors"`
-	Items   []syncpkg.SyncItemResult `json:"items"`
+	OK       bool                     `json:"ok"`
+	DryRun   bool                     `json:"dry_run"`
+	Imported int                      `json:"imported"`
+	Skipped  int                      `json:"skipped"`
+	Errors   []string                 `json:"errors"`
+	Items    []syncpkg.SyncItemResult `json:"items"`
 }
 
 // handleSyncImport handles POST /sync/v1/import
@@ -69,12 +69,12 @@ func (s *Server) handleSyncImport(w http.ResponseWriter, r *http.Request) {
 	// For now, we'll implement a simple version that uses the sync module
 	// In a full implementation, we would need to handle account mapping differently
 	// since the sync module expects AccountMap in config
-	
+
 	// Create a temporary config with the requested account mapping
 	tempConfig := *s.Config
 	tempConfig.SyncPeers = make([]config.SyncPeerConfig, len(s.Config.SyncPeers))
 	copy(tempConfig.SyncPeers, s.Config.SyncPeers)
-	
+
 	// Find and update the peer config with the requested account mapping
 	peerFound := false
 	for i, peer := range tempConfig.SyncPeers {
@@ -89,7 +89,7 @@ func (s *Server) handleSyncImport(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	
+
 	if !peerFound {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/SYNC] peer %q not found in SYNC_PEERS config", req.PeerID))
 		return
@@ -103,12 +103,12 @@ func (s *Server) handleSyncImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := SyncImportResponse{
-		OK:      len(result.Errors) == 0,
-		DryRun:  req.DryRun,
+		OK:       len(result.Errors) == 0,
+		DryRun:   req.DryRun,
 		Imported: result.Imported,
 		Skipped:  result.Skipped,
-		Errors:  result.Errors,
-		Items:   result.Items,
+		Errors:   result.Errors,
+		Items:    result.Items,
 	}
 
 	jsonResponse(w, http.StatusOK, response)
@@ -147,7 +147,7 @@ func (s *Server) handleCreateSyncPeer(w http.ResponseWriter, r *http.Request) {
 		AllowedResources string `json:"allowed_resources"`
 		AllowedAccounts  string `json:"allowed_accounts"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/SYNC] invalid JSON: %v", err))
 		return
@@ -288,7 +288,7 @@ func (s *Server) handleSyncManifest(w http.ResponseWriter, r *http.Request) {
 		checksum, err := s.DB.ChecksumSecret(secret, s.MasterKey)
 		if err != nil {
 			// Log but continue with other items
-			s.DB.LogAudit(&accountID, nil, nil, "sync.manifest.error", 
+			s.DB.LogAudit(&accountID, nil, nil, "sync.manifest.error",
 				fmt.Sprintf("failed to compute checksum for secret %s: %v", secret.ID, err))
 			continue
 		}
@@ -310,7 +310,7 @@ func (s *Server) handleSyncManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit entry
-	s.DB.LogAudit(&accountID, nil, nil, "sync.manifest", 
+	s.DB.LogAudit(&accountID, nil, nil, "sync.manifest",
 		fmt.Sprintf("manifest generated for peer %s: %d items", peer.ID, len(items)))
 
 	jsonResponse(w, http.StatusOK, manifest)
@@ -376,7 +376,7 @@ func (s *Server) handleSyncExport(w http.ResponseWriter, r *http.Request) {
 		secret, err := s.DB.GetSecretByID(itemID)
 		if err != nil {
 			// Log but continue with other items
-			s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export.error", 
+			s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export.error",
 				fmt.Sprintf("failed to get secret %s: %v", itemID, err))
 			continue
 		}
@@ -387,7 +387,7 @@ func (s *Server) handleSyncExport(w http.ResponseWriter, r *http.Request) {
 
 		// Verify secret belongs to the requested account
 		if secret.AccountID != req.SourceAccountID {
-			s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export.error", 
+			s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export.error",
 				fmt.Sprintf("secret %s belongs to different account", itemID))
 			continue
 		}
@@ -396,7 +396,7 @@ func (s *Server) handleSyncExport(w http.ResponseWriter, r *http.Request) {
 		transitEncrypted, err := s.DB.ExportSecret(secret, s.MasterKey, peer.TransitKeyHex)
 		if err != nil {
 			// Sanitize error message to avoid leaking decryption details
-			s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export.error", 
+			s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export.error",
 				fmt.Sprintf("failed to export secret %s", itemID))
 			continue
 		}
@@ -422,7 +422,7 @@ func (s *Server) handleSyncExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log audit entry
-	s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export", 
+	s.DB.LogAudit(&req.SourceAccountID, nil, nil, "sync.export",
 		fmt.Sprintf("export for peer %s: %d items", peer.ID, len(exportItems)))
 
 	jsonResponse(w, http.StatusOK, export)
@@ -460,18 +460,18 @@ func (s *Server) syncRateLimiter(maxRequests int, window time.Duration) func(htt
 		count     int
 		windowEnd time.Time
 	}
-	
+
 	limits := make(map[string]*peerLimit)
 	var mu sync.RWMutex
-	
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get peer identifier
 			var peerID string
-			
+
 			// For sync token endpoints, extract from token
-			if strings.HasPrefix(r.URL.Path, "/sync/v1/manifest") || 
-			   strings.HasPrefix(r.URL.Path, "/sync/v1/export") {
+			if strings.HasPrefix(r.URL.Path, "/sync/v1/manifest") ||
+				strings.HasPrefix(r.URL.Path, "/sync/v1/export") {
 				authHeader := r.Header.Get("Authorization")
 				if authHeader != "" {
 					parts := strings.Split(authHeader, " ")
@@ -481,16 +481,16 @@ func (s *Server) syncRateLimiter(maxRequests int, window time.Duration) func(htt
 					}
 				}
 			}
-			
+
 			// For import endpoint, use source IP
 			if peerID == "" {
 				peerID = r.RemoteAddr
 			}
-			
+
 			if peerID == "" {
 				peerID = "unknown"
 			}
-			
+
 			now := time.Now()
 			mu.Lock()
 			limit, exists := limits[peerID]
@@ -504,13 +504,13 @@ func (s *Server) syncRateLimiter(maxRequests int, window time.Duration) func(htt
 				next.ServeHTTP(w, r)
 				return
 			}
-			
+
 			if limit.count >= maxRequests {
 				mu.Unlock()
 				jsonError(w, http.StatusTooManyRequests, "[BSA:SPINE/SYNC] rate limit exceeded")
 				return
 			}
-			
+
 			limit.count++
 			mu.Unlock()
 			next.ServeHTTP(w, r)

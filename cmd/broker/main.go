@@ -10,8 +10,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 	"strconv"
+	"time"
 
 	"github.com/TheBotsters/botster-broker-go/internal/api"
 	"github.com/TheBotsters/botster-broker-go/internal/config"
@@ -63,7 +63,6 @@ func main() {
 	inferenceTap := tap.New()
 	log.Println("Inference tap initialized")
 
-
 	// Initialize session store (24h TTL)
 	sessions := api.NewSessionStore(24 * time.Hour)
 
@@ -76,8 +75,8 @@ func main() {
 		MasterKey: cfg.MasterKey,
 		Hub:       wsHub,
 		Tap:       inferenceTap,
-		Sessions: sessions,
-		Gateways: gateways,
+		Sessions:  sessions,
+		Gateways:  gateways,
 		Config:    cfg,
 	}
 
@@ -86,8 +85,8 @@ func main() {
 
 	// Broker-owned in-memory secret store (temporary bootstrap values)
 	brokerSecrets := hub.NewSecretsStore(map[string]string{
-		"openai:embedding": "sk-embedding-test-key",
-		"openai:chat":      "sk-chat-test-key",
+		"openai:embedding":  "sk-embedding-test-key",
+		"openai:chat":       "sk-chat-test-key",
 		"anthropic:default": "sk-ant-test-key",
 	})
 	brokerToken := cfg.AdminKey

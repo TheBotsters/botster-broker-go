@@ -15,9 +15,9 @@ import (
 
 // SyncResult represents the result of a sync operation.
 type SyncResult struct {
-	Imported int      `json:"imported"`
-	Skipped  int      `json:"skipped"`
-	Errors   []string `json:"errors"`
+	Imported int              `json:"imported"`
+	Skipped  int              `json:"skipped"`
+	Errors   []string         `json:"errors"`
 	Items    []SyncItemResult `json:"items"`
 }
 
@@ -31,10 +31,10 @@ type SyncItemResult struct {
 
 // ManifestResponse represents the response from /sync/v1/manifest endpoint.
 type ManifestResponse struct {
-	Resource         string           `json:"resource"`
-	SourceAccountID  string           `json:"source_account_id"`
-	GeneratedAt      string           `json:"generated_at"`
-	Items            []ManifestItem   `json:"items"`
+	Resource        string         `json:"resource"`
+	SourceAccountID string         `json:"source_account_id"`
+	GeneratedAt     string         `json:"generated_at"`
+	Items           []ManifestItem `json:"items"`
 }
 
 // ManifestItem represents a single item in the manifest.
@@ -56,13 +56,13 @@ type ExportRequest struct {
 
 // ExportResponse represents the response from /sync/v1/export endpoint.
 type ExportResponse struct {
-	Resource        string          `json:"resource"`
-	SourceAccountID string          `json:"source_account_id"`
-	SourceBrokerID  string          `json:"source_broker_id"`
-	TransitKeyID    string          `json:"transit_key_id"`
-	ExportedAt      string          `json:"exported_at"`
-	SchemaVersion   int             `json:"schema_version"`
-	Items           []ExportItem    `json:"items"`
+	Resource        string       `json:"resource"`
+	SourceAccountID string       `json:"source_account_id"`
+	SourceBrokerID  string       `json:"source_broker_id"`
+	TransitKeyID    string       `json:"transit_key_id"`
+	ExportedAt      string       `json:"exported_at"`
+	SchemaVersion   int          `json:"schema_version"`
+	Items           []ExportItem `json:"items"`
 }
 
 // ExportItem represents a single exported item.
@@ -94,7 +94,7 @@ func SyncFromPeer(database *db.DB, cfg *config.Config, masterKey string, peerID,
 	if len(peerConfig.AccountMap) == 0 {
 		return nil, fmt.Errorf("no account mapping configured for peer %q", peerID)
 	}
-	
+
 	var sourceAccountID, targetAccountID string
 	for src, dst := range peerConfig.AccountMap {
 		sourceAccountID = src
@@ -187,7 +187,7 @@ func SyncFromPeer(database *db.DB, cfg *config.Config, masterKey string, peerID,
 	}
 
 	// Log audit entry
-	detail := fmt.Sprintf("sync from peer %s: imported %d, skipped %d, errors %d", 
+	detail := fmt.Sprintf("sync from peer %s: imported %d, skipped %d, errors %d",
 		peerID, result.Imported, result.Skipped, len(result.Errors))
 	database.LogAudit(&targetAccountID, nil, nil, "sync.import", detail)
 
@@ -196,9 +196,9 @@ func SyncFromPeer(database *db.DB, cfg *config.Config, masterKey string, peerID,
 
 // fetchManifest fetches the manifest from a source broker.
 func fetchManifest(peer *config.SyncPeerConfig, resource, sourceAccountID string) (*ManifestResponse, error) {
-	url := fmt.Sprintf("%s/sync/v1/manifest?resource=%s&account_id=%s", 
+	url := fmt.Sprintf("%s/sync/v1/manifest?resource=%s&account_id=%s",
 		peer.SourceURL, resource, sourceAccountID)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -228,7 +228,7 @@ func fetchManifest(peer *config.SyncPeerConfig, resource, sourceAccountID string
 // fetchExport fetches exported items from a source broker.
 func fetchExport(peer *config.SyncPeerConfig, resource, sourceAccountID string, itemIDs []string) (*ExportResponse, error) {
 	url := fmt.Sprintf("%s/sync/v1/export", peer.SourceURL)
-	
+
 	exportReq := ExportRequest{
 		Resource:        resource,
 		SourceAccountID: sourceAccountID,

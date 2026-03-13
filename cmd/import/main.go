@@ -4,7 +4,8 @@
 // Same MASTER_KEY = encrypted secrets transfer without re-encryption.
 //
 // Usage:
-//   go run ./cmd/import --from /opt/broker/data/broker.db --to data/broker.db
+//
+//	go run ./cmd/import --from /opt/broker/data/broker.db --to data/broker.db
 package main
 
 import (

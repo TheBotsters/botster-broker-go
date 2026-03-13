@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/TheBotsters/botster-broker-go/internal/db"
+	"github.com/go-chi/chi/v5"
 )
 
 // ─── Account CRUD (root only) ──────────────────────────────────────────────────

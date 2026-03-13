@@ -10,10 +10,10 @@ import (
 func verifyImport(dest *db.DB, masterKey string) {
 	// Count entities
 	tables := map[string]string{
-		"accounts":   "SELECT count(*) FROM accounts",
-		"agents":     "SELECT count(*) FROM agents",
-		"actuators":  "SELECT count(*) FROM actuators",
-		"secrets":    "SELECT count(*) FROM secrets",
+		"accounts":    "SELECT count(*) FROM accounts",
+		"agents":      "SELECT count(*) FROM agents",
+		"actuators":   "SELECT count(*) FROM actuators",
+		"secrets":     "SELECT count(*) FROM secrets",
 		"assignments": "SELECT count(*) FROM agent_actuator_assignments",
 	}
 
