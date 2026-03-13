@@ -304,7 +304,7 @@ func (s *Server) handleDashboardInferenceTail(w http.ResponseWriter, r *http.Req
 	rows, err := s.DB.Query(`
 		SELECT id, agent_id, action, detail, created_at
 		FROM audit_log
-		WHERE account_id = ? AND (action LIKE 'inference.%' OR action LIKE 'proxy.%')
+		WHERE account_id = ? AND action LIKE 'inference.%'
 		ORDER BY created_at DESC
 		LIMIT ?
 	`, accountID, limit)
