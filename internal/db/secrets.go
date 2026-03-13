@@ -453,3 +453,13 @@ func (db *DB) CreateOrUpdateSecret(accountID, name, provider, value, masterKey s
 		return secret, true, err
 	}
 }
+
+// GrantSecretToAgent gives an agent access to a specific secret.
+func (db *DB) GrantSecretToAgent(secretID, agentID string) error {
+	id := generateID()
+	_, err := db.Exec(
+		`INSERT OR IGNORE INTO secret_access (id, secret_id, agent_id) VALUES (?, ?, ?)`,
+		id, secretID, agentID,
+	)
+	return err
+}

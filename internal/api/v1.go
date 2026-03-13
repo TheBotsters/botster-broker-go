@@ -162,6 +162,7 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/api/agents", s.handleWebSecretsAgents)
 		r.Post("/api/create", s.handleWebSecretsCreate)
 		r.Put("/api/{id}", s.handleWebSecretsUpdate)
+		r.Post("/api/{id}/grant", s.handleWebSecretsGrant)
 	})
 
 	// Dashboard (session auth required)
