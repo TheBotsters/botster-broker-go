@@ -26,6 +26,8 @@
     button:hover { background: #30363d; }
     button.danger { border-color: #da3633; color: #da3633; }
     button.danger:hover { background: #da3633; color: white; }
+    button.primary { background: #1f6feb; color: white; border-color: #1f6feb; }
+    button.primary:hover { background: #388bfd; }
     .row { display: flex; justify-content: space-between; align-items: center; }
     .stats { display: flex; gap: 16px; margin-bottom: 16px; }
     .stat { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px 16px; text-align: center; flex: 1; }
@@ -39,6 +41,76 @@
     .tab-content { display: none; }
     .tab-content.active { display: block; }
     #error { color: #da3633; margin: 10px 0; display: none; }
+
+    /* --- Log Tail Panel (reusable) --- */
+    .log-tail-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 1000;
+    }
+    .log-tail-overlay.open { display: flex; }
+    .log-tail-panel {
+      display: flex; flex-direction: column;
+      width: 95vw; max-width: 1400px;
+      height: 85vh;
+      margin: auto;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .log-tail-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+    }
+    .log-tail-header h2 { margin: 0; color: #58a6ff; font-size: 1.1em; }
+    .log-tail-header .controls { display: flex; gap: 8px; align-items: center; }
+    .log-tail-status {
+      font-size: 0.8em;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: #238636;
+      color: white;
+    }
+    .log-tail-status.paused { background: #484f58; }
+    .log-tail-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 16px;
+      font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace;
+      font-size: 0.82em;
+      line-height: 1.6;
+    }
+    .log-line {
+      padding: 2px 0;
+      border-bottom: 1px solid #21262d;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-line:hover { background: #161b22; }
+    .log-line .ts { color: #8b949e; }
+    .log-line .action { color: #58a6ff; font-weight: bold; }
+    .log-line .detail { color: #c9d1d9; }
+    .log-line.error .action { color: #da3633; }
+    .log-line.pending .action { color: #d29922; }
+    .log-empty {
+      color: #484f58;
+      text-align: center;
+      padding: 40px 0;
+      font-size: 1.1em;
+    }
+    .log-tail-footer {
+      padding: 6px 16px;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      font-size: 0.75em;
+      color: #484f58;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -56,7 +128,7 @@
     <a href="#" data-tab="actuators" onclick="switchTab('actuators', this)">Actuators</a>
     <a href="#" data-tab="inference" onclick="switchTab('inference', this)">Inference</a>
     <a href="/secrets">Secrets</a>
-      </nav>
+  </nav>
 
   <div id="safe-banner" class="safe-banner">⚠️ SAFE MODE ACTIVE — all commands blocked</div>
   <div id="error"></div>
@@ -69,7 +141,6 @@
       <div class="stat"><div class="num" id="secret-count">-</div><div class="label">Secrets</div></div>
       <div class="stat"><div class="num" id="schema-version">-</div><div class="label">Schema</div></div>
     </div>
-
     <div class="row">
       <h2>Status</h2>
       <button id="toggle-global-safe" onclick="toggleGlobalSafe()">Safe Mode</button>
@@ -78,9 +149,7 @@
 
   <!-- Agents tab -->
   <div id="tab-agents" class="tab-content">
-    <div class="row">
-      <h2>Agents</h2>
-    </div>
+    <div class="row"><h2>Agents</h2></div>
     <div id="agents-list"></div>
   </div>
 
@@ -90,28 +159,38 @@
     <div id="actuators-list"></div>
   </div>
 
-  <!-- Actuator Log Tail Modal -->
-  <div id="actuator-log-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000;">
-    <div style="max-width:900px; margin:5vh auto; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px;">
-      <div class="row" style="margin-bottom:8px;">
-        <h2 id="actuator-log-title" style="margin:0;">Actuator Log Tail</h2>
-        <button onclick="closeActuatorLogModal()">Close</button>
-      </div>
-      <pre id="actuator-log-tail" style="margin-top:10px; max-height:70vh; overflow:auto; white-space:pre-wrap;"></pre>
-    </div>
-  </div>
-
   <!-- Inference tab -->
   <div id="tab-inference" class="tab-content">
-    <h2>Agent Inference Log Tail</h2>
+    <h2>Inference</h2>
     <div class="card">
-      <button onclick="refreshInferenceTail()">Refresh Tail</button>
-      <pre id="inference-tail" style="margin-top:10px; max-height:260px; overflow:auto; white-space:pre-wrap;"></pre>
+      <div class="row">
+        <div>
+          <span class="name">Agent Inference Log</span>
+          <div class="meta">View inference proxy activity across all agents</div>
+        </div>
+        <button class="primary" onclick="openLogTail('inference', 'Agent Inference Log', '/dashboard/api/inference/tail?limit=200')">Open Log Tail</button>
+      </div>
     </div>
     <h2 style="margin-top:20px;">Live Inference Stream</h2>
     <div class="card">
       <button onclick="toggleInferenceStream()" id="toggle-inference-stream">Start Stream</button>
-      <pre id="inference-stream" style="margin-top:10px; max-height:260px; overflow:auto; white-space:pre-wrap;"></pre>
+      <div id="inference-stream-body" style="margin-top:10px; max-height:400px; overflow:auto; font-family:monospace; font-size:0.82em; line-height:1.6;"></div>
+    </div>
+  </div>
+
+  <!-- Reusable Log Tail Panel (overlay) -->
+  <div id="log-tail-overlay" class="log-tail-overlay" onclick="if(event.target===this)closeLogTail()">
+    <div class="log-tail-panel">
+      <div class="log-tail-header">
+        <h2 id="log-tail-title">Log Tail</h2>
+        <div class="controls">
+          <span id="log-tail-status" class="log-tail-status">live</span>
+          <button onclick="toggleLogTailPause()">Pause</button>
+          <button onclick="closeLogTail()">Close</button>
+        </div>
+      </div>
+      <div class="log-tail-body" id="log-tail-body"></div>
+      <div class="log-tail-footer" id="log-tail-footer">—</div>
     </div>
   </div>
 
