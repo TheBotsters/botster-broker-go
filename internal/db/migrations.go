@@ -200,7 +200,7 @@ var migrations = []migration{
 				base_url TEXT NOT NULL,
 				auth_type TEXT NOT NULL DEFAULT 'bearer',
 				auth_header TEXT NOT NULL DEFAULT 'Authorization',
-				secret_name TEXT NOT NULL,
+				secret_name TEXT NOT NULL DEFAULT '',
 				created_at TEXT NOT NULL DEFAULT (datetime('now')),
 				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 				UNIQUE(account_id, name)
