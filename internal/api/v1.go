@@ -306,7 +306,7 @@ func (s *Server) authenticateAgent(w http.ResponseWriter, r *http.Request) *db.A
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	v, _ := s.DB.SchemaVersion()
 	jsonResponse(w, 200, map[string]interface{}{
-		"status":         "ok",
+		"status":         hub.StatusOK,
 		"schema_version": v,
 	})
 }
@@ -614,7 +614,7 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		}
 		if result == nil {
 			jsonResponse(w, 202, map[string]interface{}{
-				"status":     "timeout",
+				"status":     hub.StatusTimeout,
 				"command_id": commandID,
 				"message":    "Command sent but result not received within timeout",
 			})
@@ -631,7 +631,7 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 	// Async — fire and forget through hub
 	s.Hub.SendCommand(agent.ID, agent.AccountID, msg, 0)
 	jsonResponse(w, 200, map[string]interface{}{
-		"status":     "sent",
+		"status":     hub.StatusSent,
 		"command_id": commandID,
 		"message":    "Command routed. Results delivered via WS to brain.",
 	})

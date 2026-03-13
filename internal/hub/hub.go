@@ -32,6 +32,18 @@ const (
 	TypeTokenRotatedAck = "token_rotated_ack"
 )
 
+
+// Command status constants. These must match the status values expected by
+// OpenClaw (completed, failed, running, timeout) and the broker API (ok, sent).
+const (
+	StatusOK        = "ok"
+	StatusCompleted = "completed"
+	StatusFailed    = "failed"
+	StatusRunning   = "running"
+	StatusTimeout   = "timeout"
+	StatusSent      = "sent"
+)
+
 // WSMessage is a generic envelope for WebSocket messages.
 type WSMessage struct {
 	Type       string          `json:"type"`
@@ -180,7 +192,7 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 	// Resolve actuator
 	actuator, _ := h.db.ResolveActuatorForAgent(cmd.agentID)
 	if actuator == nil {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "failed", Error: "[BSA:SPINE/HUB] No actuator available"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: StatusFailed, Error: "[BSA:SPINE/HUB] No actuator available"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
@@ -192,15 +204,15 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 	h.mu.RUnlock()
 
 	if !ok {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "failed", Error: "[BSA:SPINE/HUB] Actuator not connected"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: StatusFailed, Error: "[BSA:SPINE/HUB] Actuator not connected"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
-		_ = h.db.RecordCommandResult(cmd.msg.ID, "failed", errMsg.Error)
+		_ = h.db.RecordCommandResult(cmd.msg.ID, StatusFailed, errMsg.Error)
 		return
 	}
 	if conn.RecoveryOnly {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "failed", Error: "[BSA:SPINE/HUB] Actuator is in token recovery mode"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: StatusFailed, Error: "[BSA:SPINE/HUB] Actuator is in token recovery mode"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
@@ -210,18 +222,18 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 
 	allowed, err := h.db.ActuatorCapabilityAllowed(actuator.ID, cmd.msg.Capability)
 	if err != nil {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "failed", Error: "[BSA:SPINE/HUB] Capability check failed"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: StatusFailed, Error: "[BSA:SPINE/HUB] Capability check failed"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
 		return
 	}
 	if !allowed {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "failed", Error: "[BSA:SPINE/HUB] Actuator capability not allowed"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: StatusFailed, Error: "[BSA:SPINE/HUB] Actuator capability not allowed"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
-		_ = h.db.RecordCommandResult(cmd.msg.ID, "failed", errMsg.Error)
+		_ = h.db.RecordCommandResult(cmd.msg.ID, StatusFailed, errMsg.Error)
 		return
 	}
 
@@ -398,7 +410,7 @@ func (c *Connection) readPump(ctx context.Context) {
 			}
 			status := msg.Status
 			if status == "" {
-				status = "ok"
+				status = StatusOK
 			}
 			_ = c.hub.db.RecordCommandResult(msg.ID, status, resultText)
 
