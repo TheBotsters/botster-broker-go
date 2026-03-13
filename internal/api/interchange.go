@@ -35,7 +35,7 @@ func newConfirmToken() (string, error) {
 // GET /api/export — root only
 func (s *Server) handleExportInterchange(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/INTERCHANGE] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
@@ -44,7 +44,7 @@ func (s *Server) handleExportInterchange(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Cache-Control", "no-store")
 
 	if err := interchange.WriteExportJSONL(w, s.DB, s.MasterKey, source, time.Now()); err != nil {
-		jsonError(w, 500, "Export failed: "+err.Error())
+		jsonError(w, 500, "[BSA:SPINE/INTERCHANGE] Export failed: "+err.Error())
 		return
 	}
 }
@@ -52,7 +52,7 @@ func (s *Server) handleExportInterchange(w http.ResponseWriter, r *http.Request)
 // POST /api/import — root only, gated by Config.AllowImport
 func (s *Server) handleImportInterchange(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/INTERCHANGE] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 	if s.Config == nil || !s.Config.AllowImport {
@@ -63,12 +63,12 @@ func (s *Server) handleImportInterchange(w http.ResponseWriter, r *http.Request)
 	r.Body = http.MaxBytesReader(w, r.Body, 5<<20)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		jsonError(w, 400, "invalid body")
+		jsonError(w, 400, "[BSA:SPINE/INTERCHANGE] invalid body")
 		return
 	}
 	doc, err := interchange.ParseJSONL(bytes.NewReader(body))
 	if err != nil {
-		jsonError(w, 400, "invalid interchange jsonl: "+err.Error())
+		jsonError(w, 400, "[BSA:SPINE/INTERCHANGE] invalid interchange jsonl: "+err.Error())
 		return
 	}
 	overwriteSecrets := r.URL.Query().Get("overwrite_secrets") == "true"
@@ -78,12 +78,12 @@ func (s *Server) handleImportInterchange(w http.ResponseWriter, r *http.Request)
 	if confirm == "" {
 		plan, err := interchange.PlanImport(s.DB, doc, overwriteSecrets)
 		if err != nil {
-			jsonError(w, 500, "plan failed: "+err.Error())
+			jsonError(w, 500, "[BSA:SPINE/INTERCHANGE] plan failed: "+err.Error())
 			return
 		}
 		tok, tokErr := newConfirmToken()
 		if tokErr != nil {
-			jsonError(w, 500, "failed to generate confirm token")
+			jsonError(w, 500, "[BSA:SPINE/INTERCHANGE] failed to generate confirm token")
 			return
 		}
 		expires := time.Now().UTC().Add(5 * time.Minute)
@@ -103,7 +103,7 @@ func (s *Server) handleImportInterchange(w http.ResponseWriter, r *http.Request)
 	entry := importConfirmStore.m[confirm]
 	if entry == nil || entry.Used || time.Now().UTC().After(entry.ExpiresAt) || entry.BodyHash != hash || entry.OverwriteSecrets != overwriteSecrets {
 		importConfirmStore.Unlock()
-		jsonError(w, 400, "invalid or expired confirm token")
+		jsonError(w, 400, "[BSA:SPINE/INTERCHANGE] invalid or expired confirm token")
 		return
 	}
 	entry.Used = true
@@ -111,7 +111,7 @@ func (s *Server) handleImportInterchange(w http.ResponseWriter, r *http.Request)
 
 	res, err := interchange.ExecuteImport(s.DB, s.MasterKey, doc, overwriteSecrets)
 	if err != nil {
-		jsonError(w, 500, "import failed: "+err.Error())
+		jsonError(w, 500, "[BSA:SPINE/INTERCHANGE] import failed: "+err.Error())
 		return
 	}
 	jsonResponse(w, 200, map[string]any{

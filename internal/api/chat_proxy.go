@@ -24,7 +24,7 @@ func (s *Server) handleChatAgentList(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	agents, err := s.DB.ListAgentsByAccount(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list agents")
+		jsonError(w, 500, "[BSA:SPINE/PROXY] Failed to list agents")
 		return
 	}
 

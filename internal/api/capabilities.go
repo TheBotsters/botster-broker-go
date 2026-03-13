@@ -26,11 +26,11 @@ func (s *Server) handleCreateCapability(w http.ResponseWriter, r *http.Request) 
 		SecretID    string `json:"secret_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/CAPABILITIES] Invalid request body")
 		return
 	}
 	if body.AccountID == "" || body.Name == "" || body.ProviderID == "" || body.SecretID == "" {
-		jsonError(w, 400, "account_id, name, provider_id, and secret_id required")
+		jsonError(w, 400, "[BSA:SPINE/CAPABILITIES] account_id, name, provider_id, and secret_id required")
 		return
 	}
 	if body.DisplayName == "" {
@@ -38,25 +38,25 @@ func (s *Server) handleCreateCapability(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, body.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/CAPABILITIES] Forbidden: account scope violation")
 		return
 	}
 
 	// Validate provider and secret belong to same account
 	provider, err := s.DB.GetProviderByID(body.ProviderID)
 	if err != nil || provider == nil || provider.AccountID != body.AccountID {
-		jsonError(w, 404, "Provider not found in this account")
+		jsonError(w, 404, "[BSA:SPINE/CAPABILITIES] Provider not found in this account")
 		return
 	}
 	secret, err := s.DB.GetSecretByID(body.SecretID)
 	if err != nil || secret == nil || secret.AccountID != body.AccountID {
-		jsonError(w, 404, "Secret not found in this account")
+		jsonError(w, 404, "[BSA:SPINE/CAPABILITIES] Secret not found in this account")
 		return
 	}
 
 	cap, err := s.DB.CreateCapability(body.AccountID, body.Name, body.DisplayName, body.ProviderID, body.SecretID)
 	if err != nil {
-		jsonError(w, 409, "Capability creation failed (name may exist)")
+		jsonError(w, 409, "[BSA:SPINE/CAPABILITIES] Capability creation failed (name may exist)")
 		return
 	}
 
@@ -76,17 +76,17 @@ func (s *Server) handleListCapabilities(w http.ResponseWriter, r *http.Request) 
 		accountID = adminAgent.AccountID
 	}
 	if accountID == "" {
-		jsonError(w, 400, "account_id required")
+		jsonError(w, 400, "[BSA:SPINE/CAPABILITIES] account_id required")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/CAPABILITIES] Forbidden: account scope violation")
 		return
 	}
 
 	caps, err := s.DB.ListCapabilities(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list capabilities")
+		jsonError(w, 500, "[BSA:SPINE/CAPABILITIES] Failed to list capabilities")
 		return
 	}
 	if caps == nil {
@@ -105,11 +105,11 @@ func (s *Server) handleUpdateCapability(w http.ResponseWriter, r *http.Request) 
 
 	cap, err := s.DB.GetCapabilityByID(capID)
 	if err != nil || cap == nil {
-		jsonError(w, 404, "Capability not found")
+		jsonError(w, 404, "[BSA:SPINE/CAPABILITIES] Capability not found")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, cap.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/CAPABILITIES] Forbidden: account scope violation")
 		return
 	}
 
@@ -119,7 +119,7 @@ func (s *Server) handleUpdateCapability(w http.ResponseWriter, r *http.Request) 
 		SecretID    string `json:"secret_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/CAPABILITIES] Invalid request body")
 		return
 	}
 	if body.DisplayName == "" {
@@ -133,7 +133,7 @@ func (s *Server) handleUpdateCapability(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.DB.UpdateCapability(capID, body.DisplayName, body.ProviderID, body.SecretID); err != nil {
-		jsonError(w, 500, "Failed to update capability")
+		jsonError(w, 500, "[BSA:SPINE/CAPABILITIES] Failed to update capability")
 		return
 	}
 	accID := cap.AccountID
@@ -151,16 +151,16 @@ func (s *Server) handleDeleteCapability(w http.ResponseWriter, r *http.Request) 
 
 	cap, err := s.DB.GetCapabilityByID(capID)
 	if err != nil || cap == nil {
-		jsonError(w, 404, "Capability not found")
+		jsonError(w, 404, "[BSA:SPINE/CAPABILITIES] Capability not found")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, cap.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/CAPABILITIES] Forbidden: account scope violation")
 		return
 	}
 
 	if err := s.DB.DeleteCapability(capID); err != nil {
-		jsonError(w, 500, "Failed to delete capability")
+		jsonError(w, 500, "[BSA:SPINE/CAPABILITIES] Failed to delete capability")
 		return
 	}
 	accID := cap.AccountID
@@ -178,11 +178,11 @@ func (s *Server) handleGrantCapability(w http.ResponseWriter, r *http.Request) {
 
 	cap, err := s.DB.GetCapabilityByID(capID)
 	if err != nil || cap == nil {
-		jsonError(w, 404, "Capability not found")
+		jsonError(w, 404, "[BSA:SPINE/CAPABILITIES] Capability not found")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, cap.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/CAPABILITIES] Forbidden: account scope violation")
 		return
 	}
 
@@ -190,19 +190,19 @@ func (s *Server) handleGrantCapability(w http.ResponseWriter, r *http.Request) {
 		AgentID string `json:"agent_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
-		jsonError(w, 400, "agent_id required")
+		jsonError(w, 400, "[BSA:SPINE/CAPABILITIES] agent_id required")
 		return
 	}
 
 	// Validate agent belongs to same account
 	targetAgent, err := s.DB.GetAgentByID(body.AgentID)
 	if err != nil || targetAgent == nil || targetAgent.AccountID != cap.AccountID {
-		jsonError(w, 404, "Agent not found in this account")
+		jsonError(w, 404, "[BSA:SPINE/CAPABILITIES] Agent not found in this account")
 		return
 	}
 
 	if err := s.DB.GrantCapability(capID, body.AgentID); err != nil {
-		jsonError(w, 500, "Failed to grant capability")
+		jsonError(w, 500, "[BSA:SPINE/CAPABILITIES] Failed to grant capability")
 		return
 	}
 	accID := cap.AccountID
@@ -221,16 +221,16 @@ func (s *Server) handleRevokeCapability(w http.ResponseWriter, r *http.Request) 
 
 	cap, err := s.DB.GetCapabilityByID(capID)
 	if err != nil || cap == nil {
-		jsonError(w, 404, "Capability not found")
+		jsonError(w, 404, "[BSA:SPINE/CAPABILITIES] Capability not found")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, cap.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/CAPABILITIES] Forbidden: account scope violation")
 		return
 	}
 
 	if err := s.DB.RevokeCapability(capID, agentID); err != nil {
-		jsonError(w, 500, "Failed to revoke capability")
+		jsonError(w, 500, "[BSA:SPINE/CAPABILITIES] Failed to revoke capability")
 		return
 	}
 	accID := cap.AccountID

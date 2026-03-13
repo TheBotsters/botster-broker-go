@@ -13,7 +13,7 @@ import (
 // POST /api/groups — create a group, returns group + plaintext admin key
 func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
@@ -22,24 +22,24 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		Name      string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] Invalid request body")
 		return
 	}
 	if body.AccountID == "" || body.Name == "" {
-		jsonError(w, 400, "account_id and name required")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] account_id and name required")
 		return
 	}
 
 	// Verify account exists
 	acc, err := s.DB.GetAccountByID(body.AccountID)
 	if err != nil || acc == nil {
-		jsonError(w, 404, "Account not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Account not found")
 		return
 	}
 
 	group, plainKey, err := s.DB.CreateGroup(body.AccountID, body.Name)
 	if err != nil {
-		jsonError(w, 409, "Group creation failed (name may exist in account)")
+		jsonError(w, 409, "[BSA:SPINE/ADMIN] Group creation failed (name may exist in account)")
 		return
 	}
 
@@ -58,7 +58,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 // GET /api/groups — list all groups (root only)
 func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
@@ -67,7 +67,7 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 
 	groups, err := s.DB.ListGroups(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list groups")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list groups")
 		return
 	}
 
@@ -86,14 +86,14 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 // PATCH /api/groups/{id} — update group name (root only)
 func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
 	groupID := chi.URLParam(r, "id")
 	group, err := s.DB.GetGroupByID(groupID)
 	if err != nil || group == nil {
-		jsonError(w, 404, "Group not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Group not found")
 		return
 	}
 
@@ -101,12 +101,12 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
-		jsonError(w, 400, "name required")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] name required")
 		return
 	}
 
 	if err := s.DB.UpdateGroup(groupID, body.Name); err != nil {
-		jsonError(w, 500, "Failed to update group")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to update group")
 		return
 	}
 
@@ -125,19 +125,19 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/groups/{id} — delete group, unsets group_id on agents (root only)
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
 	groupID := chi.URLParam(r, "id")
 	group, err := s.DB.GetGroupByID(groupID)
 	if err != nil || group == nil {
-		jsonError(w, 404, "Group not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Group not found")
 		return
 	}
 
 	if err := s.DB.DeleteGroup(groupID); err != nil {
-		jsonError(w, 500, "Failed to delete group")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to delete group")
 		return
 	}
 
@@ -149,20 +149,20 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 // POST /api/groups/{id}/rotate-key — rotate group admin key (root only)
 func (s *Server) handleRotateGroupKey(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
 	groupID := chi.URLParam(r, "id")
 	group, err := s.DB.GetGroupByID(groupID)
 	if err != nil || group == nil {
-		jsonError(w, 404, "Group not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Group not found")
 		return
 	}
 
 	newKey, err := s.DB.RotateGroupAdminKey(groupID)
 	if err != nil {
-		jsonError(w, 500, "Failed to rotate group admin key")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to rotate group admin key")
 		return
 	}
 
@@ -178,14 +178,14 @@ func (s *Server) handleRotateGroupKey(w http.ResponseWriter, r *http.Request) {
 // POST /api/agents/{id}/assign-group — assign agent to group (root only)
 func (s *Server) handleAssignAgentToGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
 	agentID := chi.URLParam(r, "id")
 	agent, err := s.DB.GetAgentByID(agentID)
 	if err != nil || agent == nil {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Agent not found")
 		return
 	}
 
@@ -193,7 +193,7 @@ func (s *Server) handleAssignAgentToGroup(w http.ResponseWriter, r *http.Request
 		GroupID string `json:"group_id"` // empty string to unassign
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] Invalid request body")
 		return
 	}
 
@@ -201,17 +201,17 @@ func (s *Server) handleAssignAgentToGroup(w http.ResponseWriter, r *http.Request
 	if body.GroupID != "" {
 		group, err := s.DB.GetGroupByID(body.GroupID)
 		if err != nil || group == nil {
-			jsonError(w, 404, "Group not found")
+			jsonError(w, 404, "[BSA:SPINE/ADMIN] Group not found")
 			return
 		}
 		if group.AccountID != agent.AccountID {
-			jsonError(w, 400, "Group and agent must belong to the same account")
+			jsonError(w, 400, "[BSA:SPINE/ADMIN] Group and agent must belong to the same account")
 			return
 		}
 	}
 
 	if err := s.DB.AssignAgentToGroup(agentID, body.GroupID); err != nil {
-		jsonError(w, 500, "Failed to assign agent to group")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to assign agent to group")
 		return
 	}
 
@@ -242,20 +242,20 @@ func (s *Server) handleListGroupAgents(w http.ResponseWriter, r *http.Request) {
 
 	// Group admin can only see their own group
 	if !isRoot && group.ID != groupID {
-		jsonError(w, 403, "Forbidden: not your group")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: not your group")
 		return
 	}
 
 	// Verify group exists
 	targetGroup, err := s.DB.GetGroupByID(groupID)
 	if err != nil || targetGroup == nil {
-		jsonError(w, 404, "Group not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Group not found")
 		return
 	}
 
 	agents, err := s.DB.GetAgentsByGroup(groupID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list group agents")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list group agents")
 		return
 	}
 

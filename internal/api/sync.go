@@ -39,30 +39,30 @@ type SyncImportResponse struct {
 func (s *Server) handleSyncImport(w http.ResponseWriter, r *http.Request) {
 	// Only root/admin can trigger sync
 	if !s.requireRoot(r) {
-		jsonError(w, http.StatusForbidden, "root access required")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] root access required")
 		return
 	}
 
 	var req SyncImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %v", err))
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/SYNC] invalid JSON: %v", err))
 		return
 	}
 
 	if req.PeerID == "" {
-		jsonError(w, http.StatusBadRequest, "peer_id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] peer_id is required")
 		return
 	}
 	if req.Resource == "" {
-		jsonError(w, http.StatusBadRequest, "resource is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] resource is required")
 		return
 	}
 	if req.SourceAccountID == "" {
-		jsonError(w, http.StatusBadRequest, "source_account_id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] source_account_id is required")
 		return
 	}
 	if req.TargetAccountID == "" {
-		jsonError(w, http.StatusBadRequest, "target_account_id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] target_account_id is required")
 		return
 	}
 
@@ -91,14 +91,14 @@ func (s *Server) handleSyncImport(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	if !peerFound {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("peer %q not found in SYNC_PEERS config", req.PeerID))
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/SYNC] peer %q not found in SYNC_PEERS config", req.PeerID))
 		return
 	}
 
 	// Call sync function
 	result, err := syncpkg.SyncFromPeer(s.DB, &tempConfig, s.MasterKey, req.PeerID, req.Resource, req.ItemIDs)
 	if err != nil {
-		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("sync failed: %v", err))
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("[BSA:SPINE/SYNC] sync failed: %v", err))
 		return
 	}
 
@@ -118,13 +118,13 @@ func (s *Server) handleSyncImport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSyncListPeers(w http.ResponseWriter, r *http.Request) {
 	// Only root/admin can list sync peers
 	if !s.requireRoot(r) {
-		jsonError(w, http.StatusForbidden, "root access required")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] root access required")
 		return
 	}
 
 	peers, err := s.DB.ListSyncPeers()
 	if err != nil {
-		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list peers: %v", err))
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("[BSA:SPINE/SYNC] failed to list peers: %v", err))
 		return
 	}
 
@@ -135,7 +135,7 @@ func (s *Server) handleSyncListPeers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateSyncPeer(w http.ResponseWriter, r *http.Request) {
 	// Only root/admin can create sync peers
 	if !s.requireRoot(r) {
-		jsonError(w, http.StatusForbidden, "root access required")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] root access required")
 		return
 	}
 
@@ -149,28 +149,28 @@ func (s *Server) handleCreateSyncPeer(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %v", err))
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/SYNC] invalid JSON: %v", err))
 		return
 	}
 
 	if req.ID == "" {
-		jsonError(w, http.StatusBadRequest, "id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] id is required")
 		return
 	}
 	if req.Label == "" {
-		jsonError(w, http.StatusBadRequest, "label is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] label is required")
 		return
 	}
 	if req.TransitKeyHex == "" {
-		jsonError(w, http.StatusBadRequest, "transit_key_hex is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] transit_key_hex is required")
 		return
 	}
 	if len(req.TransitKeyHex) != 64 {
-		jsonError(w, http.StatusBadRequest, "transit_key_hex must be 64 hex characters")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] transit_key_hex must be 64 hex characters")
 		return
 	}
 	if req.TransitKeyID == "" {
-		jsonError(w, http.StatusBadRequest, "transit_key_id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] transit_key_id is required")
 		return
 	}
 	if req.AllowedResources == "" {
@@ -179,7 +179,7 @@ func (s *Server) handleCreateSyncPeer(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.DB.CreateSyncPeer(req.ID, req.Label, req.TransitKeyHex, req.TransitKeyID, req.AllowedResources, req.AllowedAccounts)
 	if err != nil {
-		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create sync peer: %v", err))
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("[BSA:SPINE/SYNC] failed to create sync peer: %v", err))
 		return
 	}
 
@@ -193,18 +193,18 @@ func (s *Server) handleCreateSyncPeer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteSyncPeer(w http.ResponseWriter, r *http.Request) {
 	// Only root/admin can delete sync peers
 	if !s.requireRoot(r) {
-		jsonError(w, http.StatusForbidden, "root access required")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] root access required")
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		jsonError(w, http.StatusBadRequest, "id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] id is required")
 		return
 	}
 
 	if err := s.DB.DeleteSyncPeer(id); err != nil {
-		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete sync peer: %v", err))
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("[BSA:SPINE/SYNC] failed to delete sync peer: %v", err))
 		return
 	}
 
@@ -215,19 +215,19 @@ func (s *Server) handleDeleteSyncPeer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRotateSyncPeerToken(w http.ResponseWriter, r *http.Request) {
 	// Only root/admin can rotate sync peer tokens
 	if !s.requireRoot(r) {
-		jsonError(w, http.StatusForbidden, "root access required")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] root access required")
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		jsonError(w, http.StatusBadRequest, "id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] id is required")
 		return
 	}
 
 	token, err := s.DB.RotateSyncPeerToken(id)
 	if err != nil {
-		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("failed to rotate sync peer token: %v", err))
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("[BSA:SPINE/SYNC] failed to rotate sync peer token: %v", err))
 		return
 	}
 
@@ -242,7 +242,7 @@ func (s *Server) handleSyncManifest(w http.ResponseWriter, r *http.Request) {
 	// Authenticate via sync token
 	peer, err := s.authenticateSyncToken(r)
 	if err != nil {
-		jsonError(w, http.StatusUnauthorized, "invalid sync token")
+		jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/SYNC] invalid sync token")
 		return
 	}
 
@@ -251,34 +251,34 @@ func (s *Server) handleSyncManifest(w http.ResponseWriter, r *http.Request) {
 	accountID := r.URL.Query().Get("account_id")
 
 	if resource == "" {
-		jsonError(w, http.StatusBadRequest, "resource parameter is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] resource parameter is required")
 		return
 	}
 	if accountID == "" {
-		jsonError(w, http.StatusBadRequest, "account_id parameter is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] account_id parameter is required")
 		return
 	}
 
 	// Check if peer is allowed to access this resource and account
 	if !peer.IsResourceAllowed(resource) {
-		jsonError(w, http.StatusForbidden, "peer not allowed to access this resource")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] peer not allowed to access this resource")
 		return
 	}
 	if !peer.IsAccountAllowed(accountID) {
-		jsonError(w, http.StatusForbidden, "peer not allowed to access this account")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] peer not allowed to access this account")
 		return
 	}
 
 	// For now, only support secrets resource
 	if resource != "secrets" {
-		jsonError(w, http.StatusBadRequest, "only 'secrets' resource is supported")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] only 'secrets' resource is supported")
 		return
 	}
 
 	// Get secrets for the account
 	secrets, err := s.DB.ListSecrets(accountID)
 	if err != nil {
-		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list secrets: %v", err))
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("[BSA:SPINE/SYNC] failed to list secrets: %v", err))
 		return
 	}
 
@@ -321,52 +321,52 @@ func (s *Server) handleSyncExport(w http.ResponseWriter, r *http.Request) {
 	// Authenticate via sync token
 	peer, err := s.authenticateSyncToken(r)
 	if err != nil {
-		jsonError(w, http.StatusUnauthorized, "invalid sync token")
+		jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/SYNC] invalid sync token")
 		return
 	}
 
 	var req syncpkg.ExportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %v", err))
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/SYNC] invalid JSON: %v", err))
 		return
 	}
 
 	if req.Resource == "" {
-		jsonError(w, http.StatusBadRequest, "resource is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] resource is required")
 		return
 	}
 	if req.SourceAccountID == "" {
-		jsonError(w, http.StatusBadRequest, "source_account_id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] source_account_id is required")
 		return
 	}
 	if req.TransitKeyID == "" {
-		jsonError(w, http.StatusBadRequest, "transit_key_id is required")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] transit_key_id is required")
 		return
 	}
 	if len(req.ItemIDs) == 0 {
-		jsonError(w, http.StatusBadRequest, "item_ids cannot be empty")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] item_ids cannot be empty")
 		return
 	}
 
 	// Check if peer is allowed to access this resource and account
 	if !peer.IsResourceAllowed(req.Resource) {
-		jsonError(w, http.StatusForbidden, "peer not allowed to access this resource")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] peer not allowed to access this resource")
 		return
 	}
 	if !peer.IsAccountAllowed(req.SourceAccountID) {
-		jsonError(w, http.StatusForbidden, "peer not allowed to access this account")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/SYNC] peer not allowed to access this account")
 		return
 	}
 
 	// Verify transit key ID matches
 	if req.TransitKeyID != peer.TransitKeyID {
-		jsonError(w, http.StatusBadRequest, "invalid transit_key_id")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] invalid transit_key_id")
 		return
 	}
 
 	// For now, only support secrets resource
 	if req.Resource != "secrets" {
-		jsonError(w, http.StatusBadRequest, "only 'secrets' resource is supported")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/SYNC] only 'secrets' resource is supported")
 		return
 	}
 
@@ -507,7 +507,7 @@ func (s *Server) syncRateLimiter(maxRequests int, window time.Duration) func(htt
 			
 			if limit.count >= maxRequests {
 				mu.Unlock()
-				jsonError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				jsonError(w, http.StatusTooManyRequests, "[BSA:SPINE/SYNC] rate limit exceeded")
 				return
 			}
 			

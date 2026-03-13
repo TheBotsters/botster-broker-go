@@ -15,18 +15,18 @@ import (
 // If not connected, buffers it for delivery on next connect.
 func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/NOTIFY] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 
 	agentName := chi.URLParam(r, "agentName")
 	agent, err := s.DB.GetAgentByName(agentName)
 	if err != nil {
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/NOTIFY] Internal error")
 		return
 	}
 	if agent == nil {
-		jsonError(w, 404, "agent_not_found")
+		jsonError(w, 404, "[BSA:SPINE/NOTIFY] agent_not_found")
 		return
 	}
 
@@ -35,7 +35,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Text == "" {
-		jsonError(w, 400, "text required")
+		jsonError(w, 400, "[BSA:SPINE/NOTIFY] text required")
 		return
 	}
 	if body.Source == "" {

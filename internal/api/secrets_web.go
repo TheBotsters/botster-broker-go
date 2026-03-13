@@ -11,7 +11,7 @@ import (
 func (s *Server) handleWebSecretsCreate(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/SECRETS] Not authenticated")
 		return
 	}
 
@@ -21,17 +21,17 @@ func (s *Server) handleWebSecretsCreate(w http.ResponseWriter, r *http.Request) 
 		Value    string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/SECRETS] Invalid request body")
 		return
 	}
 	if body.Name == "" || body.Provider == "" || body.Value == "" {
-		jsonError(w, 400, "name, provider, value required")
+		jsonError(w, 400, "[BSA:SPINE/SECRETS] name, provider, value required")
 		return
 	}
 
 	secret, err := s.DB.CreateSecret(accountID, body.Name, body.Provider, body.Value, s.MasterKey)
 	if err != nil {
-		jsonError(w, 409, "Secret creation failed (name may exist)")
+		jsonError(w, 409, "[BSA:SPINE/SECRETS] Secret creation failed (name may exist)")
 		return
 	}
 	s.DB.LogAudit(&accountID, nil, nil, "secret.create", body.Name)
@@ -42,27 +42,27 @@ func (s *Server) handleWebSecretsCreate(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleWebSecretsUpdate(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/SECRETS] Not authenticated")
 		return
 	}
 	secretID := chi.URLParam(r, "id")
 	secret, err := s.DB.GetSecretByID(secretID)
 	if err != nil || secret == nil {
-		jsonError(w, 404, "Secret not found")
+		jsonError(w, 404, "[BSA:SPINE/SECRETS] Secret not found")
 		return
 	}
 	if secret.AccountID != accountID {
-		jsonError(w, 403, "Forbidden")
+		jsonError(w, 403, "[BSA:SPINE/SECRETS] Forbidden")
 		return
 	}
 
 	var body struct{ Value string `json:"value"` }
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Value == "" {
-		jsonError(w, 400, "value required")
+		jsonError(w, 400, "[BSA:SPINE/SECRETS] value required")
 		return
 	}
 	if err := s.DB.UpdateSecretByID(secretID, body.Value, s.MasterKey); err != nil {
-		jsonError(w, 500, "Failed to update secret")
+		jsonError(w, 500, "[BSA:SPINE/SECRETS] Failed to update secret")
 		return
 	}
 	s.DB.LogAudit(&accountID, nil, nil, "secret.update", secret.Name)
@@ -73,12 +73,12 @@ func (s *Server) handleWebSecretsUpdate(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleWebSecretsAgents(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/SECRETS] Not authenticated")
 		return
 	}
 	agents, err := s.DB.ListAgentsByAccount(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list agents")
+		jsonError(w, 500, "[BSA:SPINE/SECRETS] Failed to list agents")
 		return
 	}
 	out := make([]map[string]interface{}, 0, len(agents))
@@ -92,17 +92,17 @@ func (s *Server) handleWebSecretsAgents(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleWebSecretsGrant(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/SECRETS] Not authenticated")
 		return
 	}
 	secretID := chi.URLParam(r, "id")
 	secret, err := s.DB.GetSecretByID(secretID)
 	if err != nil || secret == nil {
-		jsonError(w, 404, "Secret not found")
+		jsonError(w, 404, "[BSA:SPINE/SECRETS] Secret not found")
 		return
 	}
 	if secret.AccountID != accountID {
-		jsonError(w, 403, "Forbidden")
+		jsonError(w, 403, "[BSA:SPINE/SECRETS] Forbidden")
 		return
 	}
 
@@ -110,12 +110,12 @@ func (s *Server) handleWebSecretsGrant(w http.ResponseWriter, r *http.Request) {
 		AgentID string `json:"agent_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
-		jsonError(w, 400, "agent_id required")
+		jsonError(w, 400, "[BSA:SPINE/SECRETS] agent_id required")
 		return
 	}
 
 	if err := s.DB.GrantSecretToAgent(secretID, body.AgentID); err != nil {
-		jsonError(w, 500, "Failed to grant secret")
+		jsonError(w, 500, "[BSA:SPINE/SECRETS] Failed to grant secret")
 		return
 	}
 	s.DB.LogAudit(&accountID, &body.AgentID, nil, "secret.grant", secret.Name)

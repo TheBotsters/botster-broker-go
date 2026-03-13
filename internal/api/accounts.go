@@ -16,12 +16,12 @@ import (
 // GET /api/accounts
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 	accounts, err := s.DB.ListAccounts()
 	if err != nil {
-		jsonError(w, 500, "Failed to list accounts")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list accounts")
 		return
 	}
 	result := make([]map[string]interface{}, len(accounts))
@@ -38,13 +38,13 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 // GET /api/accounts/{id}
 func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	acc, err := s.DB.GetAccountByID(id)
 	if err != nil || acc == nil {
-		jsonError(w, 404, "Account not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Account not found")
 		return
 	}
 	jsonResponse(w, 200, map[string]interface{}{
@@ -57,19 +57,19 @@ func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
 // PATCH /api/accounts/{id}
 func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	acc, err := s.DB.GetAccountByID(id)
 	if err != nil || acc == nil {
-		jsonError(w, 404, "Account not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Account not found")
 		return
 	}
 
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] Invalid request body")
 		return
 	}
 
@@ -82,7 +82,7 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.DB.UpdateAccount(id, updates); err != nil {
-		jsonError(w, 500, "Failed to update account")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to update account")
 		return
 	}
 	s.DB.LogAudit(&id, nil, nil, "account.update", "")
@@ -98,17 +98,17 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/accounts/{id}
 func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	acc, err := s.DB.GetAccountByID(id)
 	if err != nil || acc == nil {
-		jsonError(w, 404, "Account not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Account not found")
 		return
 	}
 	if err := s.DB.DeleteAccount(id); err != nil {
-		jsonError(w, 500, "Failed to delete account")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to delete account")
 		return
 	}
 	s.DB.LogAudit(&id, nil, nil, "account.delete", acc.Email)
@@ -162,13 +162,13 @@ func formatAudit(entries []*db.AuditEntry) []map[string]interface{} {
 // POST /api/accounts/{id}/agents — root only
 func (s *Server) handleCreateAgentForAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 	accountID := chi.URLParam(r, "id")
 	acc, err := s.DB.GetAccountByID(accountID)
 	if err != nil || acc == nil {
-		jsonError(w, 404, "Account not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Account not found")
 		return
 	}
 
@@ -176,13 +176,13 @@ func (s *Server) handleCreateAgentForAccount(w http.ResponseWriter, r *http.Requ
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
-		jsonError(w, 400, "name required")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] name required")
 		return
 	}
 
 	newAgent, token, err := s.DB.CreateAgent(accountID, body.Name)
 	if err != nil {
-		jsonError(w, 409, "Agent creation failed (name may exist)")
+		jsonError(w, 409, "[BSA:SPINE/ADMIN] Agent creation failed (name may exist)")
 		return
 	}
 	s.DB.LogAudit(&accountID, &newAgent.ID, nil, "agent.create", newAgent.Name)
@@ -204,12 +204,12 @@ func (s *Server) handleListAgentsForAccount(w http.ResponseWriter, r *http.Reque
 	if s.requireRoot(r) {
 		acc, err := s.DB.GetAccountByID(accountID)
 		if err != nil || acc == nil {
-			jsonError(w, 404, "Account not found")
+			jsonError(w, 404, "[BSA:SPINE/ADMIN] Account not found")
 			return
 		}
 		agents, err := s.DB.ListAgentsByAccount(accountID)
 		if err != nil {
-			jsonError(w, 500, "Failed to list agents")
+			jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list agents")
 			return
 		}
 		jsonResponse(w, 200, formatAgents(agents))
@@ -219,12 +219,12 @@ func (s *Server) handleListAgentsForAccount(w http.ResponseWriter, r *http.Reque
 	// Group admin — sees only their group's agents (filtered by account for safety)
 	if group, ok := s.requireGroupAdmin(w, r); ok {
 		if group.AccountID != accountID {
-			jsonError(w, 403, "Forbidden: group not in this account")
+			jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: group not in this account")
 			return
 		}
 		agents, err := s.DB.GetAgentsByGroup(group.ID)
 		if err != nil {
-			jsonError(w, 500, "Failed to list agents")
+			jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list agents")
 			return
 		}
 		jsonResponse(w, 200, formatAgents(agents))
@@ -237,19 +237,19 @@ func (s *Server) handleListAgentsForAccount(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: account scope violation")
 		return
 	}
 
 	acc, err := s.DB.GetAccountByID(accountID)
 	if err != nil || acc == nil {
-		jsonError(w, 404, "Account not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Account not found")
 		return
 	}
 
 	agents, err := s.DB.ListAgentsByAccount(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list agents")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list agents")
 		return
 	}
 	jsonResponse(w, 200, formatAgents(agents))
@@ -258,7 +258,7 @@ func (s *Server) handleListAgentsForAccount(w http.ResponseWriter, r *http.Reque
 // DELETE /api/accounts/{id}/agents/{agentId} — root only
 func (s *Server) handleDeleteAgentFromAccount(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(r) {
-		jsonError(w, 401, "Unauthorized: invalid or missing X-Admin-Key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Unauthorized: invalid or missing X-Admin-Key")
 		return
 	}
 	accountID := chi.URLParam(r, "id")
@@ -266,11 +266,11 @@ func (s *Server) handleDeleteAgentFromAccount(w http.ResponseWriter, r *http.Req
 
 	agent, err := s.DB.GetAgentByID(agentID)
 	if err != nil || agent == nil || agent.AccountID != accountID {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Agent not found")
 		return
 	}
 	if err := s.DB.DeleteAgent(agentID); err != nil {
-		jsonError(w, 500, "Failed to delete agent")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to delete agent")
 		return
 	}
 	s.DB.LogAudit(&accountID, &agentID, nil, "agent.delete", agent.Name)
@@ -285,13 +285,13 @@ func (s *Server) handleUpdateAgentInAccount(w http.ResponseWriter, r *http.Reque
 
 	agent, err := s.DB.GetAgentByID(agentID)
 	if err != nil || agent == nil || agent.AccountID != accountID {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Agent not found")
 		return
 	}
 
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] Invalid request body")
 		return
 	}
 
@@ -299,7 +299,7 @@ func (s *Server) handleUpdateAgentInAccount(w http.ResponseWriter, r *http.Reque
 	if s.requireRoot(r) {
 		updates := buildAgentUpdatesRoot(body)
 		if err := s.DB.UpdateAgent(agentID, updates); err != nil {
-			jsonError(w, 500, "Failed to update agent")
+			jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to update agent")
 			return
 		}
 		s.DB.LogAudit(&accountID, &agentID, nil, "agent.update", agent.Name)
@@ -311,16 +311,16 @@ func (s *Server) handleUpdateAgentInAccount(w http.ResponseWriter, r *http.Reque
 	// Group admin — safe mode only, scoped to group
 	if group, ok := s.requireGroupAdmin(w, r); ok {
 		if !s.isAgentInGroup(agentID, group.ID) {
-			jsonError(w, 403, "Agent not in your group")
+			jsonError(w, 403, "[BSA:SPINE/ADMIN] Agent not in your group")
 			return
 		}
 		updates := buildSafeUpdate(body)
 		if len(updates) == 0 {
-			jsonError(w, 400, "Group admin can only update 'safe' field")
+			jsonError(w, 400, "[BSA:SPINE/ADMIN] Group admin can only update 'safe' field")
 			return
 		}
 		if err := s.DB.UpdateAgent(agentID, updates); err != nil {
-			jsonError(w, 500, "Failed to update agent")
+			jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to update agent")
 			return
 		}
 		s.DB.LogAudit(&accountID, &agentID, nil, "agent.update", agent.Name)
@@ -335,12 +335,12 @@ func (s *Server) handleUpdateAgentInAccount(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: account scope violation")
 		return
 	}
 	updates := buildAgentUpdatesAdmin(body)
 	if err := s.DB.UpdateAgent(agentID, updates); err != nil {
-		jsonError(w, 500, "Failed to update agent")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to update agent")
 		return
 	}
 	s.DB.LogAudit(&accountID, &agentID, nil, "agent.update", agent.Name)
@@ -405,7 +405,7 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 
 	target, err := s.DB.GetAgentByID(agentID)
 	if err != nil || target == nil || target.AccountID != accountID {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Agent not found")
 		return
 	}
 
@@ -413,13 +413,13 @@ func (s *Server) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) 
 	// This prevents accidental rotation via API calls
 	// UI can still rotate using root (master key) authentication
 	if !s.requireRoot(r) {
-		jsonError(w, 403, "Forbidden: token rotation requires root access")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: token rotation requires root access")
 		return
 	}
 
 	newToken, err := s.DB.RotateAgentToken(agentID, 15*time.Minute, s.MasterKey)
 	if err != nil {
-		jsonError(w, 500, "Failed to rotate token")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to rotate token")
 		return
 	}
 
@@ -440,7 +440,7 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 
 	agentTarget, err := s.DB.GetAgentByID(agentID)
 	if err != nil || agentTarget == nil {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Agent not found")
 		return
 	}
 
@@ -452,7 +452,7 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 		if s.isAgentInGroup(agentID, group.ID) {
 			authorized = true
 		} else {
-			jsonError(w, 403, "Agent not in your group")
+			jsonError(w, 403, "[BSA:SPINE/ADMIN] Agent not in your group")
 			return
 		}
 	} else {
@@ -465,7 +465,7 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 		}
 	}
 	if !authorized {
-		jsonError(w, 403, "Forbidden")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden")
 		return
 	}
 
@@ -474,7 +474,7 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 		Type string `json:"type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
-		jsonError(w, 400, "name required")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] name required")
 		return
 	}
 	if body.Type == "" {
@@ -483,13 +483,13 @@ func (s *Server) handleCreateActuatorForAgent(w http.ResponseWriter, r *http.Req
 
 	actuator, token, err := s.DB.CreateActuator(agentTarget.AccountID, body.Name, body.Type)
 	if err != nil {
-		jsonError(w, 409, "Actuator creation failed")
+		jsonError(w, 409, "[BSA:SPINE/ADMIN] Actuator creation failed")
 		return
 	}
 
 	// Auto-assign to the agent
 	if err := s.DB.AssignActuatorToAgent(agentID, actuator.ID); err != nil {
-		jsonError(w, 500, "Actuator created but assignment failed")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Actuator created but assignment failed")
 		return
 	}
 	s.DB.LogAudit(&agentTarget.AccountID, &agentID, &actuator.ID, "actuator.create", actuator.Name)
@@ -509,7 +509,7 @@ func (s *Server) handleDeleteActuator(w http.ResponseWriter, r *http.Request) {
 
 	actuator, err := s.DB.GetActuatorByID(actuatorID)
 	if err != nil || actuator == nil {
-		jsonError(w, 404, "Actuator not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Actuator not found")
 		return
 	}
 
@@ -520,7 +520,7 @@ func (s *Server) handleDeleteActuator(w http.ResponseWriter, r *http.Request) {
 		// Group admin can delete actuators only if assigned to an agent in their group
 		groupAgents, err := s.DB.GetAgentsByGroup(group.ID)
 		if err != nil {
-			jsonError(w, 500, "Internal error")
+			jsonError(w, 500, "[BSA:SPINE/ADMIN] Internal error")
 			return
 		}
 		allowed := false
@@ -532,7 +532,7 @@ func (s *Server) handleDeleteActuator(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !allowed {
-			jsonError(w, 403, "Actuator not assigned to an agent in your group")
+			jsonError(w, 403, "[BSA:SPINE/ADMIN] Actuator not assigned to an agent in your group")
 			return
 		}
 	} else {
@@ -541,13 +541,13 @@ func (s *Server) handleDeleteActuator(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !isRoot && !requireAccountScope(adminAgent.AccountID, actuator.AccountID) {
-			jsonError(w, 403, "Forbidden: account scope violation")
+			jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: account scope violation")
 			return
 		}
 	}
 
 	if err := s.DB.DeleteActuator(actuatorID); err != nil {
-		jsonError(w, 500, "Failed to delete actuator")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to delete actuator")
 		return
 	}
 	accID := actuator.AccountID
@@ -571,23 +571,23 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 		Value     string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] Invalid request body")
 		return
 	}
 	if body.AccountID == "" || body.Name == "" || body.Provider == "" || body.Value == "" {
-		jsonError(w, 400, "account_id, name, provider, and value required")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] account_id, name, provider, and value required")
 		return
 	}
 
 	// Admin scope check
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, body.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: account scope violation")
 		return
 	}
 
 	secret, err := s.DB.CreateSecret(body.AccountID, body.Name, body.Provider, body.Value, s.MasterKey)
 	if err != nil {
-		jsonError(w, 409, "Secret creation failed (name may exist)")
+		jsonError(w, 409, "[BSA:SPINE/ADMIN] Secret creation failed (name may exist)")
 		return
 	}
 	accID := body.AccountID
@@ -611,13 +611,13 @@ func (s *Server) handleUpdateSecret(w http.ResponseWriter, r *http.Request) {
 
 	secret, err := s.DB.GetSecretByID(secretID)
 	if err != nil || secret == nil {
-		jsonError(w, 404, "Secret not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Secret not found")
 		return
 	}
 
 	// Admin scope check
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, secret.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: account scope violation")
 		return
 	}
 
@@ -625,12 +625,12 @@ func (s *Server) handleUpdateSecret(w http.ResponseWriter, r *http.Request) {
 		Value string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Value == "" {
-		jsonError(w, 400, "value required")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] value required")
 		return
 	}
 
 	if err := s.DB.UpdateSecretByID(secretID, body.Value, s.MasterKey); err != nil {
-		jsonError(w, 500, "Failed to update secret")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to update secret")
 		return
 	}
 	accID := secret.AccountID
@@ -656,7 +656,7 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		entries, err := s.DB.ListAuditLog(accountFilter, limit)
 		if err != nil {
-			jsonError(w, 500, "Failed to list audit log")
+			jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list audit log")
 			return
 		}
 		jsonResponse(w, 200, formatAudit(entries))
@@ -668,7 +668,7 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		accountFilter := group.AccountID
 		entries, err := s.DB.ListAuditLog(&accountFilter, limit)
 		if err != nil {
-			jsonError(w, 500, "Failed to list audit log")
+			jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list audit log")
 			return
 		}
 		jsonResponse(w, 200, formatAudit(entries))
@@ -681,27 +681,27 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		token = r.Header.Get("X-Agent-Token")
 	}
 	if token == "" {
-		jsonError(w, 401, "Missing auth token or admin key")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Missing auth token or admin key")
 		return
 	}
 	agent, err := s.DB.GetAgentByToken(token)
 	if err != nil {
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Internal error")
 		return
 	}
 	if agent == nil {
-		jsonError(w, 401, "Invalid token")
+		jsonError(w, 401, "[BSA:SPINE/ADMIN] Invalid token")
 		return
 	}
 	if agent.Role != "admin" && agent.Role != "operator" {
-		jsonError(w, 403, "Forbidden: admin, operator, or master key required")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: admin, operator, or master key required")
 		return
 	}
 
 	accountFilter := agent.AccountID
 	entries, err := s.DB.ListAuditLog(&accountFilter, limit)
 	if err != nil {
-		jsonError(w, 500, "Failed to list audit log")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to list audit log")
 		return
 	}
 	jsonResponse(w, 200, formatAudit(entries))
@@ -717,12 +717,12 @@ func (s *Server) handleGrantSecretAdmin(w http.ResponseWriter, r *http.Request) 
 	secretID := chi.URLParam(r, "id")
 	secret, err := s.DB.GetSecretByID(secretID)
 	if err != nil || secret == nil {
-		jsonError(w, 404, "Secret not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Secret not found")
 		return
 	}
 
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, secret.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: account scope violation")
 		return
 	}
 
@@ -730,22 +730,22 @@ func (s *Server) handleGrantSecretAdmin(w http.ResponseWriter, r *http.Request) 
 		AgentID string `json:"agent_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
-		jsonError(w, 400, "agent_id required")
+		jsonError(w, 400, "[BSA:SPINE/ADMIN] agent_id required")
 		return
 	}
 
 	targetAgent, err := s.DB.GetAgentByID(body.AgentID)
 	if err != nil || targetAgent == nil {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/ADMIN] Agent not found")
 		return
 	}
 	if targetAgent.AccountID != secret.AccountID {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/ADMIN] Forbidden: account scope violation")
 		return
 	}
 
 	if err := s.DB.GrantSecretToAgent(secretID, body.AgentID); err != nil {
-		jsonError(w, 500, "Failed to grant secret")
+		jsonError(w, 500, "[BSA:SPINE/ADMIN] Failed to grant secret")
 		return
 	}
 	s.DB.LogAudit(&secret.AccountID, &body.AgentID, nil, "secret.grant", secret.Name)
