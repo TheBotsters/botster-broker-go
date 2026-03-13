@@ -61,6 +61,9 @@ function renderAgent(agent) {
   `;
 }
 
+let _activeActuatorLog = null;
+let _actuatorLogTimer = null;
+
 /** @param {object} actuator @returns {string} */
 function renderActuator(actuator) {
   const statusClass = actuator.status === 'online' ? 'online' : 'offline';
@@ -76,6 +79,7 @@ function renderActuator(actuator) {
           <div class="meta" style="margin-top:8px;">Capabilities (comma-separated):</div>
           <input id="caps-${actuator.id}" placeholder="exec, notify, wake" style="width:360px; margin-top:4px; background:#0d1117; color:#c9d1d9; border:1px solid #30363d; padding:6px; border-radius:6px;" />
           <button style="margin-left:8px;" onclick="saveActuatorCapabilities('${actuator.id}')">Save</button>
+          <button style="margin-left:8px;" onclick="openActuatorLogModal('${actuator.id}', '${actuator.name.replace(/'/g, "&#39;")}')">View Log Tail</button>
         </div>
       </div>
     </div>
@@ -127,15 +131,9 @@ async function loadDashboard() {
     if (dashboard.actuators) {
       document.getElementById('actuators-list').innerHTML = dashboard.actuators.map(renderActuator).join('');
 
-      const sel = document.getElementById('actuator-log-select');
-      if (sel) {
-        sel.innerHTML = dashboard.actuators.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
-      }
-
       for (const a of dashboard.actuators) {
         await loadActuatorCapabilities(a.id);
       }
-      await loadActuatorLogs();
     }
 
     await refreshInferenceTail();
@@ -183,20 +181,43 @@ async function saveActuatorCapabilities(actuatorId) {
   }
 }
 
-async function loadActuatorLogs() {
-  const sel = document.getElementById('actuator-log-select');
-  if (!sel || !sel.value) {
+async function loadActuatorLogs(actuatorId) {
+  if (!actuatorId) {
     setPre('actuator-log-tail', 'No actuator selected.');
     return;
   }
   setPre('actuator-log-tail', 'Loading actuator logs...');
-  const res = await api('/dashboard/api/actuators/' + sel.value + '/logs?limit=100');
+  const res = await api('/dashboard/api/actuators/' + actuatorId + '/logs?limit=100');
   if (!res) {
     setPre('actuator-log-tail', 'Failed to load actuator logs.');
     return;
   }
   const lines = (res.entries || []).map(e => `[${e.created_at}] ${e.action} ${e.detail || ''}`);
   setPre('actuator-log-tail', lines.length ? lines.join('\n') : 'No actuator log entries yet.');
+}
+
+function openActuatorLogModal(actuatorId, actuatorName) {
+  _activeActuatorLog = actuatorId;
+  const modal = document.getElementById('actuator-log-modal');
+  const title = document.getElementById('actuator-log-title');
+  if (title) title.textContent = `Actuator Log Tail — ${actuatorName}`;
+  if (modal) modal.style.display = 'block';
+
+  loadActuatorLogs(actuatorId);
+  if (_actuatorLogTimer) clearInterval(_actuatorLogTimer);
+  _actuatorLogTimer = setInterval(() => {
+    if (_activeActuatorLog) loadActuatorLogs(_activeActuatorLog);
+  }, 3000);
+}
+
+function closeActuatorLogModal() {
+  const modal = document.getElementById('actuator-log-modal');
+  if (modal) modal.style.display = 'none';
+  _activeActuatorLog = null;
+  if (_actuatorLogTimer) {
+    clearInterval(_actuatorLogTimer);
+    _actuatorLogTimer = null;
+  }
 }
 
 async function refreshInferenceTail() {

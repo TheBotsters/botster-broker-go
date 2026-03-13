@@ -88,13 +88,16 @@
   <div id="tab-actuators" class="tab-content">
     <h2>Actuators</h2>
     <div id="actuators-list"></div>
+  </div>
 
-    <h2 style="margin-top:20px;">Actuator Log Tail</h2>
-    <div class="card">
-      <label for="actuator-log-select">Actuator:</label>
-      <select id="actuator-log-select" onchange="loadActuatorLogs()" style="margin:0 8px;"></select>
-      <button onclick="loadActuatorLogs()">Refresh</button>
-      <pre id="actuator-log-tail" style="margin-top:10px; max-height:260px; overflow:auto; white-space:pre-wrap;"></pre>
+  <!-- Actuator Log Tail Modal -->
+  <div id="actuator-log-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000;">
+    <div style="max-width:900px; margin:5vh auto; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px;">
+      <div class="row" style="margin-bottom:8px;">
+        <h2 id="actuator-log-title" style="margin:0;">Actuator Log Tail</h2>
+        <button onclick="closeActuatorLogModal()">Close</button>
+      </div>
+      <pre id="actuator-log-tail" style="margin-top:10px; max-height:70vh; overflow:auto; white-space:pre-wrap;"></pre>
     </div>
   </div>
 
