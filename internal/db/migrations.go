@@ -7,9 +7,10 @@ import (
 
 // migration represents a numbered, idempotent schema change.
 type migration struct {
-	version     int
-	description string
-	sql         string
+	version           int
+	description       string
+	sql               string
+	disableForeignKey bool // needed for table rebuild migrations with dependent FKs
 }
 
 // migrations is the ordered list of all schema migrations.
@@ -188,6 +189,73 @@ var migrations = []migration{
 			ALTER TABLE actuators ADD COLUMN recovery_issued_at TEXT;
 		`,
 	},
+	{
+		version:     8,
+		description: "Add providers table for capability-based proxy",
+		sql: `
+			CREATE TABLE IF NOT EXISTS providers (
+				id TEXT PRIMARY KEY,
+				account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				display_name TEXT NOT NULL,
+				base_url TEXT NOT NULL,
+				auth_type TEXT NOT NULL DEFAULT 'bearer',
+				auth_header TEXT NOT NULL DEFAULT 'Authorization',
+				secret_name TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(account_id, name)
+			);
+		`,
+	},
+	{
+		version:     9,
+		description: "Add capabilities and capability_grants tables",
+		sql: `
+			CREATE TABLE IF NOT EXISTS capabilities (
+				id TEXT PRIMARY KEY,
+				account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				display_name TEXT NOT NULL,
+				provider_id TEXT NOT NULL REFERENCES providers(id),
+				secret_id TEXT NOT NULL REFERENCES secrets(id),
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(account_id, name)
+			);
+
+			CREATE TABLE IF NOT EXISTS capability_grants (
+				id TEXT PRIMARY KEY,
+				capability_id TEXT NOT NULL REFERENCES capabilities(id) ON DELETE CASCADE,
+				agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(capability_id, agent_id)
+			);
+		`,
+	},
+	{
+		version:           10,
+		description:       "Make capability foreign keys explicit ON DELETE RESTRICT",
+		disableForeignKey: true,
+		sql: `
+			CREATE TABLE IF NOT EXISTS capabilities_new (
+				id TEXT PRIMARY KEY,
+				account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				display_name TEXT NOT NULL,
+				provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE RESTRICT,
+				secret_id TEXT NOT NULL REFERENCES secrets(id) ON DELETE RESTRICT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(account_id, name)
+			);
+
+			INSERT INTO capabilities_new (id, account_id, name, display_name, provider_id, secret_id, created_at)
+			SELECT id, account_id, name, display_name, provider_id, secret_id, created_at
+			FROM capabilities;
+
+			DROP TABLE capabilities;
+			ALTER TABLE capabilities_new RENAME TO capabilities;
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.
@@ -206,23 +274,61 @@ func (db *DB) migrate() error {
 
 		log.Printf("Applying migration %d: %s", m.version, m.description)
 
+		if m.disableForeignKey {
+			if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+				return fmt.Errorf("disable foreign keys for migration %d: %w", m.version, err)
+			}
+		}
+
 		tx, err := db.Begin()
 		if err != nil {
+			if m.disableForeignKey {
+				_, _ = db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return fmt.Errorf("begin migration %d: %w", m.version, err)
 		}
 
 		if _, err := tx.Exec(m.sql); err != nil {
 			tx.Rollback()
+			if m.disableForeignKey {
+				_, _ = db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return fmt.Errorf("exec migration %d: %w", m.version, err)
 		}
 
 		if _, err := tx.Exec(`INSERT INTO schema_version (version) VALUES (?)`, m.version); err != nil {
 			tx.Rollback()
+			if m.disableForeignKey {
+				_, _ = db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return fmt.Errorf("record migration %d: %w", m.version, err)
 		}
 
 		if err := tx.Commit(); err != nil {
+			if m.disableForeignKey {
+				_, _ = db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return fmt.Errorf("commit migration %d: %w", m.version, err)
+		}
+
+		if m.disableForeignKey {
+			rows, err := db.Query(`PRAGMA foreign_key_check`)
+			if err != nil {
+				_, _ = db.Exec(`PRAGMA foreign_keys = ON`)
+				return fmt.Errorf("foreign key check migration %d: %w", m.version, err)
+			}
+			defer rows.Close()
+			if rows.Next() {
+				_, _ = db.Exec(`PRAGMA foreign_keys = ON`)
+				return fmt.Errorf("foreign key check failed after migration %d", m.version)
+			}
+			if err := rows.Err(); err != nil {
+				_, _ = db.Exec(`PRAGMA foreign_keys = ON`)
+				return fmt.Errorf("foreign key check rows migration %d: %w", m.version, err)
+			}
+			if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+				return fmt.Errorf("re-enable foreign keys for migration %d: %w", m.version, err)
+			}
 		}
 
 		applied++

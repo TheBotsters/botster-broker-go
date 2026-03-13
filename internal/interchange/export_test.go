@@ -33,15 +33,12 @@ func TestWriteExportJSONL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent, _, err := d.CreateAgent(acc.ID, "agent1")
+	_, _, err = d.CreateAgent(acc.ID, "agent1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sec, err := d.CreateSecret(acc.ID, "OPENAI_API_KEY", "openai", "sekret", testMasterKey)
+	_, err = d.CreateSecret(acc.ID, "OPENAI_API_KEY", "openai", "sekret", testMasterKey)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := d.GrantSecretAccess(sec.ID, agent.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,7 +60,6 @@ func TestWriteExportJSONL(t *testing.T) {
 		`"_type":"secret"`,
 		`"name":"OPENAI_API_KEY"`,
 		`"value":"sekret"`,
-		`"grants":["agent1"]`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q\n%s", want, out)

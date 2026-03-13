@@ -639,82 +639,6 @@ func (s *Server) handleUpdateSecret(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/secrets/{id}/grant
-func (s *Server) handleGrantSecretAccess(w http.ResponseWriter, r *http.Request) {
-	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
-	if !ok {
-		return
-	}
-	secretID := chi.URLParam(r, "id")
-
-	secret, err := s.DB.GetSecretByID(secretID)
-	if err != nil || secret == nil {
-		jsonError(w, 404, "Secret not found")
-		return
-	}
-
-	// Admin scope check
-	if !isRoot && !requireAccountScope(adminAgent.AccountID, secret.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
-		return
-	}
-
-	var body struct {
-		AgentID string `json:"agent_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
-		jsonError(w, 400, "agent_id required")
-		return
-	}
-
-	// Validate target agent belongs to the same account
-	targetAgent, err := s.DB.GetAgentByID(body.AgentID)
-	if err != nil || targetAgent == nil || targetAgent.AccountID != secret.AccountID {
-		jsonError(w, 404, "Agent not found in this account")
-		return
-	}
-
-	if err := s.DB.GrantSecretAccess(secretID, body.AgentID); err != nil {
-		jsonError(w, 500, "Failed to grant access")
-		return
-	}
-	accID := secret.AccountID
-	s.DB.LogAudit(&accID, &body.AgentID, nil, "secret.grant", secret.Name)
-	jsonResponse(w, 200, map[string]bool{"ok": true})
-}
-
-// DELETE /api/secrets/{id}/grant/{agentId}
-func (s *Server) handleRevokeSecretAccess(w http.ResponseWriter, r *http.Request) {
-	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
-	if !ok {
-		return
-	}
-	secretID := chi.URLParam(r, "id")
-	agentID := chi.URLParam(r, "agentId")
-
-	secret, err := s.DB.GetSecretByID(secretID)
-	if err != nil || secret == nil {
-		jsonError(w, 404, "Secret not found")
-		return
-	}
-
-	// Admin scope check
-	if !isRoot && !requireAccountScope(adminAgent.AccountID, secret.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
-		return
-	}
-
-	if err := s.DB.RevokeSecretAccess(secretID, agentID); err != nil {
-		jsonError(w, 500, "Failed to revoke access")
-		return
-	}
-	accID := secret.AccountID
-	s.DB.LogAudit(&accID, &agentID, nil, "secret.revoke", secret.Name)
-	jsonResponse(w, 200, map[string]bool{"ok": true})
-}
-
-// ─── Audit Log ─────────────────────────────────────────────────────────────────
-
-// GET /api/audit — root sees all, admin/group-admin/operator sees scoped view
 func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	limit := 200
@@ -781,4 +705,49 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, 200, formatAudit(entries))
+}
+
+// POST /api/secrets/{id}/grant — admin grants a secret to an agent.
+func (s *Server) handleGrantSecretAdmin(w http.ResponseWriter, r *http.Request) {
+	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+	if !ok {
+		return
+	}
+
+	secretID := chi.URLParam(r, "id")
+	secret, err := s.DB.GetSecretByID(secretID)
+	if err != nil || secret == nil {
+		jsonError(w, 404, "Secret not found")
+		return
+	}
+
+	if !isRoot && !requireAccountScope(adminAgent.AccountID, secret.AccountID) {
+		jsonError(w, 403, "Forbidden: account scope violation")
+		return
+	}
+
+	var body struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
+		jsonError(w, 400, "agent_id required")
+		return
+	}
+
+	targetAgent, err := s.DB.GetAgentByID(body.AgentID)
+	if err != nil || targetAgent == nil {
+		jsonError(w, 404, "Agent not found")
+		return
+	}
+	if targetAgent.AccountID != secret.AccountID {
+		jsonError(w, 403, "Forbidden: account scope violation")
+		return
+	}
+
+	if err := s.DB.GrantSecretToAgent(secretID, body.AgentID); err != nil {
+		jsonError(w, 500, "Failed to grant secret")
+		return
+	}
+	s.DB.LogAudit(&secret.AccountID, &body.AgentID, nil, "secret.grant", secret.Name)
+	jsonResponse(w, 200, map[string]bool{"ok": true})
 }

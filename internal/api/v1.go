@@ -43,8 +43,6 @@ func (s *Server) NewRouter() chi.Router {
 
 	// V1 API
 	r.Route("/v1", func(r chi.Router) {
-		r.Post("/secrets/get", s.handleSecretsGet)
-		r.Post("/secrets/list", s.handleSecretsList)
 		r.Post("/tokens/scoped", s.handleCreateScopedToken)
 		r.Get("/actuators", s.handleActuatorsList)
 		r.Post("/actuator/select", s.handleActuatorSelect)
@@ -58,6 +56,8 @@ func (s *Server) NewRouter() chi.Router {
 		r.Post("/proxy/anthropic/*", s.handleProxyAnthropic)
 		r.Post("/proxy/openai/*", s.handleProxyOpenAI)
 		r.Post("/web/search", s.handleWebSearch)
+		r.Post("/capabilities", s.handleCapabilities)
+		r.Post("/proxy/request", s.handleProxyRequest)
 		// Notify (root only)
 		r.Post("/notify/{agentName}", s.handleNotify)
 	})
@@ -95,11 +95,27 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/export", s.handleExportInterchange)
 		r.Post("/import", s.handleImportInterchange)
 
+		// Secret retrieval (dashboard only — not agent-facing)
+		r.Post("/secrets/get", s.handleSecretsGet)
+
 		// Secret management (root or admin scoped)
 		r.Post("/secrets", s.handleCreateSecret)
 		r.Put("/secrets/{id}", s.handleUpdateSecret)
-		r.Post("/secrets/{id}/grant", s.handleGrantSecretAccess)
-		r.Delete("/secrets/{id}/grant/{agentId}", s.handleRevokeSecretAccess)
+		r.Post("/secrets/{id}/grant", s.handleGrantSecretAdmin)
+
+		// Capability management (root or admin scoped)
+		r.Post("/capabilities", s.handleCreateCapability)
+		r.Get("/capabilities", s.handleListCapabilities)
+		r.Put("/capabilities/{id}", s.handleUpdateCapability)
+		r.Delete("/capabilities/{id}", s.handleDeleteCapability)
+		r.Post("/capabilities/{id}/grant", s.handleGrantCapability)
+		r.Delete("/capabilities/{id}/grant/{agentId}", s.handleRevokeCapability)
+
+		// Provider management (root or admin scoped)
+		r.Post("/providers", s.handleCreateProvider)
+		r.Get("/providers", s.handleListProviders)
+		r.Put("/providers/{id}", s.handleUpdateProvider)
+		r.Delete("/providers/{id}", s.handleDeleteProvider)
 
 		// Audit log (root or admin scoped)
 		r.Get("/audit", s.handleListAudit)
@@ -111,6 +127,11 @@ func (s *Server) NewRouter() chi.Router {
 		r.Delete("/groups/{id}", s.handleDeleteGroup)
 		r.Post("/groups/{id}/rotate-key", s.handleRotateGroupKey)
 		r.Get("/groups/{id}/agents", s.handleListGroupAgents)
+	})
+
+	// Root redirects to dashboard
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 	})
 
 	// Login page redirect
@@ -139,6 +160,21 @@ func (s *Server) NewRouter() chi.Router {
 			http.ServeFile(w, r, "web/secrets.html")
 		})
 		r.Get("/api/list", s.handleWebSecretsList)
+		r.Get("/api/agents", s.handleWebSecretsAgents)
+		r.Post("/api/create", s.handleWebSecretsCreate)
+		r.Put("/api/{id}", s.handleWebSecretsUpdate)
+		r.Post("/api/{id}/grant", s.handleWebSecretsGrant)
+	})
+
+	// Dashboard (session auth required)
+	r.Route("/dashboard", func(r chi.Router) {
+		r.Use(s.requireAuth)
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, "web/index.html")
+		})
+		r.Get("/api/data", s.handleDashboardData)
+		r.Post("/api/safe", s.handleDashboardSafeToggle)
+		r.Post("/api/agents/{id}/safe", s.handleDashboardAgentSafeToggle)
 	})
 
 	// Sync routes
@@ -202,7 +238,6 @@ func checkScopedCapability(r *http.Request, requiredCap string) bool {
 	return false
 }
 
-// secretNameToCapability maps a secret name to its required scoped capability.
 func secretNameToCapability(name string) string {
 	upper := strings.ToUpper(name)
 	switch {
@@ -271,68 +306,43 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSecretsGet is dashboard/management only — agents cannot call this.
 func (s *Server) handleSecretsGet(w http.ResponseWriter, r *http.Request) {
-	agent := s.authenticateAgent(w, r)
-	if agent == nil {
+	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+	if !ok {
 		return
 	}
 
 	var body struct {
-		Name string `json:"name"`
+		AccountID string `json:"account_id"`
+		Name      string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 		jsonError(w, 400, "name required")
 		return
 	}
 
-	// Check scoped capability for this secret
-	if cap := secretNameToCapability(body.Name); cap != "" {
-		if !checkScopedCapability(r, cap) {
-			jsonError(w, 403, "Scoped token does not have capability: "+cap)
-			return
-		}
+	accountID := body.AccountID
+	if accountID == "" && !isRoot {
+		accountID = adminAgent.AccountID
+	}
+	if accountID == "" {
+		jsonError(w, 400, "account_id required")
+		return
+	}
+	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
+		jsonError(w, 403, "Forbidden: account scope violation")
+		return
 	}
 
-	value, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, body.Name, s.MasterKey)
+	value, err := s.DB.GetSecret(accountID, body.Name, s.MasterKey)
 	if err != nil {
 		jsonError(w, 404, "Secret not found or decrypt failed")
 		return
 	}
 
-	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "secret_access", body.Name)
+	s.DB.LogAudit(&accountID, nil, nil, "secret_access.dashboard", body.Name)
 	jsonResponse(w, 200, map[string]string{"name": body.Name, "value": value})
-}
-
-func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
-	agent := s.authenticateAgent(w, r)
-	if agent == nil {
-		return
-	}
-
-	secrets, err := s.DB.ListSecrets(agent.AccountID)
-	if err != nil {
-		jsonError(w, 500, "Failed to list secrets")
-		return
-	}
-
-	// Return names only, not values.
-	// For scoped tokens, filter to secrets matching their capabilities.
-	caps := getScopedCaps(r)
-	names := make([]map[string]string, 0, len(secrets))
-	for _, sec := range secrets {
-		if caps != nil {
-			required := secretNameToCapability(sec.Name)
-			if required != "" && !checkScopedCapability(r, required) {
-				continue // hide secrets outside scope
-			}
-		}
-		names = append(names, map[string]string{
-			"id":       sec.ID,
-			"name":     sec.Name,
-			"provider": sec.Provider,
-		})
-	}
-	jsonResponse(w, 200, names)
 }
 
 func (s *Server) handleActuatorsList(w http.ResponseWriter, r *http.Request) {
@@ -640,12 +650,14 @@ func (s *Server) handleWebSecretsList(w http.ResponseWriter, r *http.Request) {
 	// Return secret metadata (no encrypted values)
 	result := make([]map[string]interface{}, 0, len(secrets))
 	for _, sec := range secrets {
+		grants, _ := s.DB.ListSecretGrantAgentNames(sec.ID)
 		result = append(result, map[string]interface{}{
 			"id":         sec.ID,
 			"name":       sec.Name,
 			"provider":   sec.Provider,
 			"created_at": sec.CreatedAt,
 			"updated_at": sec.UpdatedAt,
+			"grants":     grants,
 		})
 	}
 	jsonResponse(w, 200, result)

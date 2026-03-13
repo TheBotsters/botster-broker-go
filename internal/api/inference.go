@@ -359,6 +359,9 @@ func (s *Server) persistOpenAIBundle(accountID string, bundle *openAIOAuthBundle
 
 // resolveInferenceKeys returns all decrypted API keys for a provider (round-robin ready).
 // Returns (keys, httpStatus, errMsg). httpStatus=0 means success.
+// Uses the hardcoded inferenceProviders map for secret name resolution.
+// NOTE: Inference providers are a separate concept from the capability model.
+// They will get their own data model in a future iteration.
 func (s *Server) resolveInferenceKeys(agent *inferenceAgentInfo, provider string) ([]string, int, string) {
 	cfg, ok := inferenceProviders[provider]
 	if !ok {
@@ -561,7 +564,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 
 	cfg, ok := inferenceProviders[providerName]
 	if !ok {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("unsupported provider: %s. Supported: anthropic, openai, xai", providerName))
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("unsupported provider: %s", providerName))
 		return
 	}
 

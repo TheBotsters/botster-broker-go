@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Botster Broker — Login</title>
+  <title>Botster Spine v2 — Login</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #0d1117; color: #c9d1d9; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -21,8 +21,8 @@
 </head>
 <body>
   <div class="login-box">
-    <h1>🔧 Botster Broker</h1>
-    <div class="subtitle">Sign in to chat with your agents</div>
+    <h1>🔐 Botster Spine v2</h1>
+    <div class="subtitle">Sign in to access the dashboard</div>
     <div id="error" class="error"></div>
     <form id="loginForm">
       <label for="email">Email</label>
@@ -54,7 +54,7 @@
         });
         const data = await res.json();
         if (res.ok) {
-          window.location.href = '/chat/';
+          window.location.href = '/dashboard';
         } else {
           errorEl.textContent = data.error || 'Login failed';
           errorEl.style.display = 'block';
@@ -69,7 +69,7 @@
 
     // If already logged in, redirect
     fetch('/auth/status').then(r => r.json()).then(d => {
-      if (d.authenticated) window.location.href = '/chat/';
+      if (d.authenticated) window.location.href = '/dashboard';
     });
   </script>
 </body>
