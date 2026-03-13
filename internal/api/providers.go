@@ -134,7 +134,6 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	if body.AuthHeader == "" {
 		body.AuthHeader = provider.AuthHeader
 	}
-	
 
 	if err := s.DB.UpdateProvider(providerID, body.DisplayName, body.BaseURL, body.AuthType, body.AuthHeader); err != nil {
 		jsonError(w, 500, "[BSA:SPINE/PROVIDERS] Failed to update provider")

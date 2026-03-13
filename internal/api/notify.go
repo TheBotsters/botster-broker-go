@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/TheBotsters/botster-broker-go/internal/hub"
+	"github.com/go-chi/chi/v5"
 )
 
 // POST /v1/notify/{agentName} — root only

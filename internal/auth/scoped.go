@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	scopedTokenPrefix  = "seks_scoped_"
-	scopedTTLMin       = 10
-	scopedTTLMax       = 1800
-	scopedTTLDefault   = 300
+	scopedTokenPrefix = "seks_scoped_"
+	scopedTTLMin      = 10
+	scopedTTLMax      = 1800
+	scopedTTLDefault  = 300
 )
 
 // ScopedTokenPayload is the decoded payload of a scoped token.

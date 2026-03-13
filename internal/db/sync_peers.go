@@ -32,7 +32,7 @@ func (db *DB) CreateSyncPeer(id, label, transitKeyHex, transitKeyID, allowedReso
 	tokenHash := auth.HashToken(token)
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	
+
 	var allowedAccountsPtr interface{}
 	if allowedAccounts == "" {
 		allowedAccountsPtr = nil
@@ -54,7 +54,7 @@ func (db *DB) CreateSyncPeer(id, label, transitKeyHex, transitKeyID, allowedReso
 // GetSyncPeerByToken looks up a sync peer by token hash.
 func (db *DB) GetSyncPeerByToken(token string) (*SyncPeer, error) {
 	tokenHash := auth.HashToken(token)
-	
+
 	peer := &SyncPeer{}
 	err := db.QueryRow(`
 		SELECT id, label, token_hash, transit_key_hex, transit_key_id, allowed_resources, allowed_accounts, last_synced_at, created_at
@@ -151,7 +151,7 @@ func (p *SyncPeer) IsAccountAllowed(accountID string) bool {
 	if !p.AllowedAccounts.Valid || p.AllowedAccounts.String == "" {
 		return true // NULL or empty means all accounts allowed
 	}
-	
+
 	allowed := strings.Split(p.AllowedAccounts.String, ",")
 	for _, allowedID := range allowed {
 		if strings.TrimSpace(allowedID) == accountID {
