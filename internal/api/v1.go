@@ -265,7 +265,7 @@ func secretNameToCapability(name string) string {
 func (s *Server) authenticateAgent(w http.ResponseWriter, r *http.Request) *db.Agent {
 	token := extractToken(r)
 	if token == "" {
-		jsonError(w, 401, "Missing auth token")
+		jsonError(w, 401, "[BSA:SPINE/API] Missing auth token")
 		return nil
 	}
 
@@ -273,12 +273,12 @@ func (s *Server) authenticateAgent(w http.ResponseWriter, r *http.Request) *db.A
 	if auth.IsScopedToken(token) {
 		payload, err := auth.VerifyScopedToken(token, s.MasterKey)
 		if err != nil {
-			jsonError(w, 401, "Invalid or expired scoped token: "+err.Error())
+			jsonError(w, 401, "[BSA:SPINE/API] Invalid or expired scoped token: "+err.Error())
 			return nil
 		}
 		agent, err := s.DB.GetAgentByID(payload.AgentID)
 		if err != nil || agent == nil {
-			jsonError(w, 401, "Scoped token references unknown agent")
+			jsonError(w, 401, "[BSA:SPINE/API] Scoped token references unknown agent")
 			return nil
 		}
 		// Inject scoped caps into the request context.
@@ -291,11 +291,11 @@ func (s *Server) authenticateAgent(w http.ResponseWriter, r *http.Request) *db.A
 	agent, err := s.DB.GetAgentByToken(token)
 	if err != nil {
 		log.Printf("Auth error: %v", err)
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/API] Internal error")
 		return nil
 	}
 	if agent == nil {
-		jsonError(w, 401, "Invalid token")
+		jsonError(w, 401, "[BSA:SPINE/API] Invalid token")
 		return nil
 	}
 	return agent
@@ -323,7 +323,7 @@ func (s *Server) handleSecretsGet(w http.ResponseWriter, r *http.Request) {
 		Name      string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
-		jsonError(w, 400, "name required")
+		jsonError(w, 400, "[BSA:SPINE/API] name required")
 		return
 	}
 
@@ -332,17 +332,17 @@ func (s *Server) handleSecretsGet(w http.ResponseWriter, r *http.Request) {
 		accountID = adminAgent.AccountID
 	}
 	if accountID == "" {
-		jsonError(w, 400, "account_id required")
+		jsonError(w, 400, "[BSA:SPINE/API] account_id required")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/API] Forbidden: account scope violation")
 		return
 	}
 
 	value, err := s.DB.GetSecret(accountID, body.Name, s.MasterKey)
 	if err != nil {
-		jsonError(w, 404, "Secret not found or decrypt failed")
+		jsonError(w, 404, "[BSA:SPINE/API] Secret not found or decrypt failed")
 		return
 	}
 
@@ -362,7 +362,7 @@ func (s *Server) handleActuatorsList(w http.ResponseWriter, r *http.Request) {
 		WHERE account_id = ? ORDER BY created_at
 	`, agent.AccountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list actuators")
+		jsonError(w, 500, "[BSA:SPINE/API] Failed to list actuators")
 		return
 	}
 	defer rows.Close()
@@ -397,20 +397,20 @@ func (s *Server) handleActuatorSelect(w http.ResponseWriter, r *http.Request) {
 		ActuatorID *string `json:"actuator_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/API] Invalid request body")
 		return
 	}
 
 	if body.ActuatorID != nil {
 		assigned, err := s.DB.IsActuatorAssignedToAgent(agent.ID, *body.ActuatorID)
 		if err != nil || !assigned {
-			jsonError(w, 404, "Actuator not found or not assigned to this agent")
+			jsonError(w, 404, "[BSA:SPINE/API] Actuator not found or not assigned to this agent")
 			return
 		}
 	}
 
 	if err := s.DB.SelectActuator(agent.ID, body.ActuatorID); err != nil {
-		jsonError(w, 500, "Failed to select actuator")
+		jsonError(w, 500, "[BSA:SPINE/API] Failed to select actuator")
 		return
 	}
 
@@ -428,7 +428,7 @@ func (s *Server) handleActuatorSelected(w http.ResponseWriter, r *http.Request) 
 
 	actuator, err := s.DB.ResolveActuatorForAgent(agent.ID)
 	if err != nil {
-		jsonError(w, 500, "Failed to resolve actuator")
+		jsonError(w, 500, "[BSA:SPINE/API] Failed to resolve actuator")
 		return
 	}
 	if actuator == nil {
@@ -449,13 +449,13 @@ func (s *Server) handleAgentSafeToggle(w http.ResponseWriter, r *http.Request) {
 
 	agent, err := s.DB.GetAgentByID(agentID)
 	if err != nil || agent == nil {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/API] Agent not found")
 		return
 	}
 
 	newSafe := !agent.Safe
 	if err := s.DB.SetAgentSafe(agentID, newSafe); err != nil {
-		jsonError(w, 500, "Failed to toggle safe mode")
+		jsonError(w, 500, "[BSA:SPINE/API] Failed to toggle safe mode")
 		return
 	}
 
@@ -477,7 +477,7 @@ func (s *Server) handleGlobalSafeToggle(w http.ResponseWriter, r *http.Request) 
 	newSafe := !current
 
 	if err := s.DB.SetGlobalSafe(newSafe); err != nil {
-		jsonError(w, 500, "Failed to toggle global safe mode")
+		jsonError(w, 500, "[BSA:SPINE/API] Failed to toggle global safe mode")
 		return
 	}
 
@@ -494,13 +494,13 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" || body.Password == "" {
-		jsonError(w, 400, "email and password required")
+		jsonError(w, 400, "[BSA:SPINE/API] email and password required")
 		return
 	}
 
 	acc, err := s.DB.CreateAccount(body.Email, body.Password)
 	if err != nil {
-		jsonError(w, 409, "Account creation failed (email may exist)")
+		jsonError(w, 409, "[BSA:SPINE/API] Account creation failed (email may exist)")
 		return
 	}
 
@@ -518,7 +518,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 
 	agents, err := s.DB.ListAgentsByAccount(agent.AccountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list agents")
+		jsonError(w, 500, "[BSA:SPINE/API] Failed to list agents")
 		return
 	}
 
@@ -544,13 +544,13 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
-		jsonError(w, 400, "name required")
+		jsonError(w, 400, "[BSA:SPINE/API] name required")
 		return
 	}
 
 	newAgent, token, err := s.DB.CreateAgent(agent.AccountID, body.Name)
 	if err != nil {
-		jsonError(w, 409, "Agent creation failed (name may exist)")
+		jsonError(w, 409, "[BSA:SPINE/API] Agent creation failed (name may exist)")
 		return
 	}
 
@@ -576,11 +576,11 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 		TTL        int             `json:"ttl_seconds,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/API] Invalid request body")
 		return
 	}
 	if body.Capability == "" || body.Payload == nil {
-		jsonError(w, 400, "capability and payload required")
+		jsonError(w, 400, "[BSA:SPINE/API] capability and payload required")
 		return
 	}
 
@@ -609,7 +609,7 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 
 		result, err := s.Hub.SendCommand(agent.ID, agent.AccountID, msg, timeout)
 		if err != nil {
-			jsonError(w, 500, "Command dispatch failed")
+			jsonError(w, 500, "[BSA:SPINE/API] Command dispatch failed")
 			return
 		}
 		if result == nil {
@@ -642,13 +642,13 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWebSecretsList(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/API] Not authenticated")
 		return
 	}
 
 	secrets, err := s.DB.ListSecrets(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list secrets")
+		jsonError(w, 500, "[BSA:SPINE/API] Failed to list secrets")
 		return
 	}
 

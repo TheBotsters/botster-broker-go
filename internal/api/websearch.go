@@ -97,21 +97,21 @@ func (s *Server) handleWebSearch(w http.ResponseWriter, r *http.Request) {
 	agent, err := s.authenticateInferenceAgent(r)
 	if err != nil {
 		log.Printf("[web/search] auth error: %v", err)
-		jsonError(w, http.StatusInternalServerError, "internal error")
+		jsonError(w, http.StatusInternalServerError, "[BSA:SPINE/WEBSEARCH] internal error")
 		return
 	}
 	if agent == nil {
-		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/WEBSEARCH] Unauthorized")
 		return
 	}
 
 	var params webSearchParams
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		jsonError(w, http.StatusBadRequest, "Invalid JSON body")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/WEBSEARCH] Invalid JSON body")
 		return
 	}
 	if params.Query == "" {
-		jsonError(w, http.StatusBadRequest, "Missing required field: query")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/WEBSEARCH] Missing required field: query")
 		return
 	}
 
@@ -121,7 +121,7 @@ func (s *Server) handleWebSearch(w http.ResponseWriter, r *http.Request) {
 
 	if freeToken == "" && paidToken == "" {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "web_search", "brave denied: no tokens configured")
-		jsonError(w, http.StatusNotFound, "No Brave Search tokens configured (FREE_BRAVE_AI_TOKEN or BRAVE_BASE_AI_TOKEN)")
+		jsonError(w, http.StatusNotFound, "[BSA:SPINE/WEBSEARCH] No Brave Search tokens configured (FREE_BRAVE_AI_TOKEN or BRAVE_BASE_AI_TOKEN)")
 		return
 	}
 
@@ -169,7 +169,7 @@ func (s *Server) handleWebSearch(w http.ResponseWriter, r *http.Request) {
 		ok, status, body, err := dosBraveSearch(searchURL, paidToken)
 		if err != nil {
 			log.Printf("[web/search] paid tier error: %v", err)
-			jsonError(w, http.StatusBadGateway, "Brave Search request failed: "+err.Error())
+			jsonError(w, http.StatusBadGateway, "[BSA:SPINE/WEBSEARCH] Brave Search request failed: "+err.Error())
 			return
 		}
 		if ok {
@@ -188,5 +188,5 @@ func (s *Server) handleWebSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonError(w, http.StatusInternalServerError, "No tokens available")
+	jsonError(w, http.StatusInternalServerError, "[BSA:SPINE/WEBSEARCH] No tokens available")
 }

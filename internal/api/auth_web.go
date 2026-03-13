@@ -17,23 +17,23 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/AUTH] Invalid request body")
 		return
 	}
 	if req.Email == "" || req.Password == "" {
-		jsonError(w, 400, "Email and password required")
+		jsonError(w, 400, "[BSA:SPINE/AUTH] Email and password required")
 		return
 	}
 
 	account, err := s.DB.GetAccountByEmail(req.Email)
 	if err != nil {
 		log.Printf("[auth] login error: %v", err)
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/AUTH] Internal error")
 		return
 	}
 	if account == nil || !account.VerifyPassword(req.Password) {
 		// Constant-time-ish: don't reveal whether email exists
-		jsonError(w, 401, "Invalid email or password")
+		jsonError(w, 401, "[BSA:SPINE/AUTH] Invalid email or password")
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 				return
 			}
-			jsonError(w, 401, "Not authenticated")
+			jsonError(w, 401, "[BSA:SPINE/AUTH] Not authenticated")
 			return
 		}
 		// Store session in context for downstream handlers

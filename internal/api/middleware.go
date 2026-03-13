@@ -19,20 +19,20 @@ func (s *Server) requireRoot(r *http.Request) bool {
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) *db.Agent {
 	token := extractToken(r)
 	if token == "" {
-		jsonError(w, 401, "Missing auth token")
+		jsonError(w, 401, "[BSA:SPINE/AUTH] Missing auth token")
 		return nil
 	}
 	agent, err := s.DB.GetAgentByToken(token)
 	if err != nil {
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/AUTH] Internal error")
 		return nil
 	}
 	if agent == nil {
-		jsonError(w, 401, "Invalid token")
+		jsonError(w, 401, "[BSA:SPINE/AUTH] Invalid token")
 		return nil
 	}
 	if agent.Role != "admin" {
-		jsonError(w, 403, "Forbidden: admin role required")
+		jsonError(w, 403, "[BSA:SPINE/AUTH] Forbidden: admin role required")
 		return nil
 	}
 	return agent
@@ -57,21 +57,21 @@ func (s *Server) requireRootOrAdmin(w http.ResponseWriter, r *http.Request) (isR
 		token = r.URL.Query().Get("agent_token")
 	}
 	if token == "" {
-		jsonError(w, 401, "Missing auth token or admin key")
+		jsonError(w, 401, "[BSA:SPINE/AUTH] Missing auth token or admin key")
 		return false, nil, false
 	}
 
 	a, err := s.DB.GetAgentByToken(token)
 	if err != nil {
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/AUTH] Internal error")
 		return false, nil, false
 	}
 	if a == nil {
-		jsonError(w, 401, "Invalid token")
+		jsonError(w, 401, "[BSA:SPINE/AUTH] Invalid token")
 		return false, nil, false
 	}
 	if a.Role != "admin" {
-		jsonError(w, 403, "Forbidden: admin role or master key required")
+		jsonError(w, 403, "[BSA:SPINE/AUTH] Forbidden: admin role or master key required")
 		return false, nil, false
 	}
 	return false, a, true
@@ -95,7 +95,7 @@ func (s *Server) requireGroupAdmin(w http.ResponseWriter, r *http.Request) (*db.
 
 	group, err := s.DB.GetGroupByAdminKey(key)
 	if err != nil {
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/AUTH] Internal error")
 		return nil, false
 	}
 	if group == nil {
@@ -119,7 +119,7 @@ func (s *Server) requireRootOrGroupAdmin(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Neither root nor group admin — write error
-	jsonError(w, 401, "Missing or invalid X-Admin-Key or X-Group-Admin-Key")
+	jsonError(w, 401, "[BSA:SPINE/AUTH] Missing or invalid X-Admin-Key or X-Group-Admin-Key")
 	return false, nil, false
 }
 
@@ -140,20 +140,20 @@ func (s *Server) requireOperator(w http.ResponseWriter, r *http.Request) *db.Age
 		token = r.Header.Get("X-Agent-Token")
 	}
 	if token == "" {
-		jsonError(w, 401, "Missing auth token")
+		jsonError(w, 401, "[BSA:SPINE/AUTH] Missing auth token")
 		return nil
 	}
 	agent, err := s.DB.GetAgentByToken(token)
 	if err != nil {
-		jsonError(w, 500, "Internal error")
+		jsonError(w, 500, "[BSA:SPINE/AUTH] Internal error")
 		return nil
 	}
 	if agent == nil {
-		jsonError(w, 401, "Invalid token")
+		jsonError(w, 401, "[BSA:SPINE/AUTH] Invalid token")
 		return nil
 	}
 	if agent.Role != "operator" {
-		jsonError(w, 403, "Forbidden: operator role required")
+		jsonError(w, 403, "[BSA:SPINE/AUTH] Forbidden: operator role required")
 		return nil
 	}
 	return agent

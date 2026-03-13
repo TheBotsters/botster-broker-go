@@ -365,12 +365,12 @@ func (s *Server) persistOpenAIBundle(accountID string, bundle *openAIOAuthBundle
 func (s *Server) resolveInferenceKeys(agent *inferenceAgentInfo, provider string) ([]string, int, string) {
 	cfg, ok := inferenceProviders[provider]
 	if !ok {
-		return nil, http.StatusBadRequest, fmt.Sprintf("unsupported provider: %s", provider)
+		return nil, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/INFERENCE] unsupported provider: %s", provider)
 	}
 
 	keys, err := s.DB.GetSecretsByPrefix(agent.AccountID, cfg.SecretName, s.MasterKey)
 	if err != nil || len(keys) == 0 {
-		return nil, http.StatusNotFound, fmt.Sprintf("no %s API key configured. Store secret '%s' in the broker.", provider, cfg.SecretName)
+		return nil, http.StatusNotFound, fmt.Sprintf("[BSA:SPINE/INFERENCE] no %s API key configured. Store secret '%s' in the broker.", provider, cfg.SecretName)
 	}
 	return keys, 0, ""
 }
@@ -533,44 +533,44 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	agent, err := s.authenticateInferenceAgent(r)
 	if err != nil {
 		log.Printf("[inference] auth error: %v", err)
-		jsonError(w, http.StatusInternalServerError, "internal error")
+		jsonError(w, http.StatusInternalServerError, "[BSA:SPINE/INFERENCE] internal error")
 		return
 	}
 	if agent == nil {
-		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/INFERENCE] Unauthorized")
 		return
 	}
 
 	var rawBody map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&rawBody); err != nil {
-		jsonError(w, http.StatusBadRequest, "Invalid JSON body")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/INFERENCE] Invalid JSON body")
 		return
 	}
 
 	providerName, _ := rawBody["provider"].(string)
 	model, _ := rawBody["model"].(string)
 	if providerName == "" {
-		jsonError(w, http.StatusBadRequest, `Missing "provider" field`)
+		jsonError(w, http.StatusBadRequest, `[BSA:SPINE/INFERENCE] Missing "provider" field`)
 		return
 	}
 	if model == "" {
-		jsonError(w, http.StatusBadRequest, `Missing "model" field`)
+		jsonError(w, http.StatusBadRequest, `[BSA:SPINE/INFERENCE] Missing "model" field`)
 		return
 	}
 	if _, ok := rawBody["messages"]; !ok {
-		jsonError(w, http.StatusBadRequest, `Missing or invalid "messages" field`)
+		jsonError(w, http.StatusBadRequest, `[BSA:SPINE/INFERENCE] Missing or invalid "messages" field`)
 		return
 	}
 
 	cfg, ok := inferenceProviders[providerName]
 	if !ok {
-		jsonError(w, http.StatusBadRequest, fmt.Sprintf("unsupported provider: %s", providerName))
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("[BSA:SPINE/INFERENCE] unsupported provider: %s", providerName))
 		return
 	}
 
 	// Check scoped capability for this provider
 	if !checkScopedCapability(r, "inference/"+providerName) {
-		jsonError(w, http.StatusForbidden, "Scoped token does not have capability: inference/"+providerName)
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/INFERENCE] Scoped token does not have capability: inference/"+providerName)
 		return
 	}
 
@@ -600,7 +600,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	case "openai":
 		authResult, err := resolveOpenAIAuth(apiKey)
 		if err != nil {
-			jsonError(w, http.StatusBadRequest, err.Error())
+			jsonError(w, http.StatusBadRequest, "[BSA:SPINE/INFERENCE] "+err.Error())
 			return
 		}
 		oauthAuthMode = authResult.Mode
@@ -620,7 +620,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if authResult.Expires > 0 && time.Now().UnixMilli() > authResult.Expires {
-			jsonError(w, http.StatusUnauthorized, "OpenAI OAuth token appears expired in broker secret; re-auth required.")
+			jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/INFERENCE] OpenAI OAuth token appears expired in broker secret; re-auth required.")
 			return
 		}
 
@@ -694,7 +694,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 				Data:      err.Error(),
 			})
 		}
-		jsonError(w, http.StatusBadGateway, "Provider request failed: "+err.Error())
+		jsonError(w, http.StatusBadGateway, "[BSA:SPINE/INFERENCE] Provider request failed: "+err.Error())
 		return
 	}
 
@@ -792,11 +792,11 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 	agent, err := s.authenticateInferenceAgent(r)
 	if err != nil {
 		log.Printf("[proxy/anthropic] auth error: %v", err)
-		jsonError(w, http.StatusInternalServerError, "internal error")
+		jsonError(w, http.StatusInternalServerError, "[BSA:SPINE/INFERENCE] internal error")
 		return
 	}
 	if agent == nil {
-		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/INFERENCE] Unauthorized")
 		return
 	}
 
@@ -809,7 +809,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 
 	// Check scoped capability
 	if !checkScopedCapability(r, "inference/anthropic") {
-		jsonError(w, http.StatusForbidden, "Scoped token does not have capability: inference/anthropic")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/INFERENCE] Scoped token does not have capability: inference/anthropic")
 		return
 	}
 
@@ -825,7 +825,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 
 	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
-		jsonError(w, http.StatusBadRequest, "Failed to read request body")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/INFERENCE] Failed to read request body")
 		return
 	}
 
@@ -912,7 +912,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.error",
 				fmt.Sprintf(`inference/anthropic model=%s error=%s attempt=%d`, model, err.Error(), attempt+1))
 			if attempt == maxAttempts-1 {
-				jsonError(w, http.StatusBadGateway, "Provider request failed: "+err.Error())
+				jsonError(w, http.StatusBadGateway, "[BSA:SPINE/INFERENCE] Provider request failed: "+err.Error())
 				return
 			}
 			continue
@@ -988,7 +988,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 		w.Write(lastRateLimitResp) //nolint:errcheck
 		return
 	}
-	jsonError(w, http.StatusTooManyRequests, "All provider keys exhausted")
+	jsonError(w, http.StatusTooManyRequests, "[BSA:SPINE/INFERENCE] All provider keys exhausted")
 }
 
 // handleProxyOpenAI handles POST /v1/proxy/openai/* — transparent OpenAI proxy.
@@ -998,11 +998,11 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	agent, err := s.authenticateInferenceAgent(r)
 	if err != nil {
 		log.Printf("[proxy/openai] auth error: %v", err)
-		jsonError(w, http.StatusInternalServerError, "internal error")
+		jsonError(w, http.StatusInternalServerError, "[BSA:SPINE/INFERENCE] internal error")
 		return
 	}
 	if agent == nil {
-		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/INFERENCE] Unauthorized")
 		return
 	}
 
@@ -1015,7 +1015,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	// Check scoped capability
 	if !checkScopedCapability(r, "inference/openai") {
-		jsonError(w, http.StatusForbidden, "Scoped token does not have capability: inference/openai")
+		jsonError(w, http.StatusForbidden, "[BSA:SPINE/INFERENCE] Scoped token does not have capability: inference/openai")
 		return
 	}
 
@@ -1024,7 +1024,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	authResult, err := resolveOpenAIAuth(apiKey)
 	if err != nil {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+err.Error())
-		jsonError(w, http.StatusBadRequest, err.Error())
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/INFERENCE] "+err.Error())
 		return
 	}
 
@@ -1042,7 +1042,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if authResult.Expires > 0 && time.Now().UnixMilli() > authResult.Expires {
-		errMsg := "OpenAI OAuth token appears expired in broker secret; re-auth required."
+		errMsg := "[BSA:SPINE/INFERENCE] OpenAI OAuth token appears expired in broker secret; re-auth required."
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+errMsg)
 		jsonError(w, http.StatusUnauthorized, errMsg)
 		return
@@ -1060,7 +1060,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
-		jsonError(w, http.StatusBadRequest, "Failed to read request body")
+		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/INFERENCE] Failed to read request body")
 		return
 	}
 
@@ -1084,7 +1084,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	if isEmbedding && authResult.Mode == openAIOAuthBundle {
 		embKey, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, "OPENAI_API_KEY", s.MasterKey)
 		if err != nil {
-			errMsg := "Embedding request requires OPENAI_API_KEY in broker secret store (OPENAI_TOKEN oauth bundle cannot access embeddings)."
+			errMsg := "[BSA:SPINE/INFERENCE] Embedding request requires OPENAI_API_KEY in broker secret store (OPENAI_TOKEN oauth bundle cannot access embeddings)."
 			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+errMsg)
 			jsonError(w, http.StatusBadRequest, errMsg)
 			return
@@ -1175,7 +1175,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.error",
 			fmt.Sprintf(`inference/openai model=%s error=%s`, model, err.Error()))
-		jsonError(w, http.StatusBadGateway, "Provider request failed: "+err.Error())
+		jsonError(w, http.StatusBadGateway, "[BSA:SPINE/INFERENCE] Provider request failed: "+err.Error())
 		return
 	}
 
@@ -1187,7 +1187,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 			resp.Body.Close()
 			resp, err = makeReq(finalBody)
 			if err != nil {
-				jsonError(w, http.StatusBadGateway, "Provider request failed after token refresh: "+err.Error())
+				jsonError(w, http.StatusBadGateway, "[BSA:SPINE/INFERENCE] Provider request failed after token refresh: "+err.Error())
 				return
 			}
 		}
@@ -1249,11 +1249,11 @@ func (s *Server) handleInferenceProviders(w http.ResponseWriter, r *http.Request
 	agent, err := s.authenticateInferenceAgent(r)
 	if err != nil {
 		log.Printf("[inference/providers] auth error: %v", err)
-		jsonError(w, http.StatusInternalServerError, "internal error")
+		jsonError(w, http.StatusInternalServerError, "[BSA:SPINE/INFERENCE] internal error")
 		return
 	}
 	if agent == nil {
-		jsonError(w, http.StatusUnauthorized, "Unauthorized")
+		jsonError(w, http.StatusUnauthorized, "[BSA:SPINE/INFERENCE] Unauthorized")
 		return
 	}
 

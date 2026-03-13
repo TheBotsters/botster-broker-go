@@ -30,11 +30,11 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		AuthHeader  string `json:"auth_header"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/PROVIDERS] Invalid request body")
 		return
 	}
 	if body.AccountID == "" || body.Name == "" || body.BaseURL == "" {
-		jsonError(w, 400, "account_id, name, and base_url required")
+		jsonError(w, 400, "[BSA:SPINE/PROVIDERS] account_id, name, and base_url required")
 		return
 	}
 	if body.DisplayName == "" {
@@ -48,13 +48,13 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, body.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/PROVIDERS] Forbidden: account scope violation")
 		return
 	}
 
 	provider, err := s.DB.CreateProvider(body.AccountID, body.Name, body.DisplayName, body.BaseURL, body.AuthType, body.AuthHeader)
 	if err != nil {
-		jsonError(w, 409, "Provider creation failed (name may exist)")
+		jsonError(w, 409, "[BSA:SPINE/PROVIDERS] Provider creation failed (name may exist)")
 		return
 	}
 
@@ -74,17 +74,17 @@ func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 		accountID = adminAgent.AccountID
 	}
 	if accountID == "" {
-		jsonError(w, 400, "account_id required")
+		jsonError(w, 400, "[BSA:SPINE/PROVIDERS] account_id required")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, accountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/PROVIDERS] Forbidden: account scope violation")
 		return
 	}
 
 	providers, err := s.DB.ListProviders(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list providers")
+		jsonError(w, 500, "[BSA:SPINE/PROVIDERS] Failed to list providers")
 		return
 	}
 	if providers == nil {
@@ -103,11 +103,11 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 
 	provider, err := s.DB.GetProviderByID(providerID)
 	if err != nil || provider == nil {
-		jsonError(w, 404, "Provider not found")
+		jsonError(w, 404, "[BSA:SPINE/PROVIDERS] Provider not found")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, provider.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/PROVIDERS] Forbidden: account scope violation")
 		return
 	}
 
@@ -118,7 +118,7 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		AuthHeader  string `json:"auth_header"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/PROVIDERS] Invalid request body")
 		return
 	}
 	// Use existing values as defaults
@@ -137,7 +137,7 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	
 
 	if err := s.DB.UpdateProvider(providerID, body.DisplayName, body.BaseURL, body.AuthType, body.AuthHeader); err != nil {
-		jsonError(w, 500, "Failed to update provider")
+		jsonError(w, 500, "[BSA:SPINE/PROVIDERS] Failed to update provider")
 		return
 	}
 	accID := provider.AccountID
@@ -155,16 +155,16 @@ func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 
 	provider, err := s.DB.GetProviderByID(providerID)
 	if err != nil || provider == nil {
-		jsonError(w, 404, "Provider not found")
+		jsonError(w, 404, "[BSA:SPINE/PROVIDERS] Provider not found")
 		return
 	}
 	if !isRoot && !requireAccountScope(adminAgent.AccountID, provider.AccountID) {
-		jsonError(w, 403, "Forbidden: account scope violation")
+		jsonError(w, 403, "[BSA:SPINE/PROVIDERS] Forbidden: account scope violation")
 		return
 	}
 
 	if err := s.DB.DeleteProvider(providerID); err != nil {
-		jsonError(w, 500, "Failed to delete provider")
+		jsonError(w, 500, "[BSA:SPINE/PROVIDERS] Failed to delete provider")
 		return
 	}
 	accID := provider.AccountID
@@ -183,7 +183,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 
 	agentCaps, err := s.DB.ListAgentCapabilities(agent.AccountID, agent.ID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list capabilities")
+		jsonError(w, 500, "[BSA:SPINE/PROVIDERS] Failed to list capabilities")
 		return
 	}
 
@@ -225,31 +225,31 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 		Body       string            `json:"body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/PROVIDERS] Invalid request body")
 		return
 	}
 	if body.Capability == "" || body.Method == "" || body.URL == "" {
-		jsonError(w, 400, "capability, method, and url required")
+		jsonError(w, 400, "[BSA:SPINE/PROVIDERS] capability, method, and url required")
 		return
 	}
 
 	// Look up capability (joins provider + secret)
 	cap, err := s.DB.GetCapabilityByName(agent.AccountID, body.Capability)
 	if err != nil || cap == nil {
-		jsonError(w, 404, "Capability not found: "+body.Capability)
+		jsonError(w, 404, "[BSA:SPINE/PROVIDERS] Capability not found: "+body.Capability)
 		return
 	}
 
 	// Check agent has been granted this capability
 	granted, err := s.DB.AgentHasCapability(cap.ID, agent.ID)
 	if err != nil || !granted {
-		jsonError(w, 403, "Agent does not have capability: "+body.Capability)
+		jsonError(w, 403, "[BSA:SPINE/PROVIDERS] Agent does not have capability: "+body.Capability)
 		return
 	}
 
 	// Validate URL matches provider base_url
 	if !strings.HasPrefix(body.URL, cap.BaseURL) {
-		jsonError(w, 403, "URL does not match provider base URL")
+		jsonError(w, 403, "[BSA:SPINE/PROVIDERS] URL does not match provider base URL")
 		return
 	}
 
@@ -257,7 +257,7 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	secretValue, err := s.DB.GetSecret(agent.AccountID, cap.SecretName, s.MasterKey)
 	if err != nil {
 		log.Printf("[proxy/request] failed to decrypt secret for capability %s: %v", body.Capability, err)
-		jsonError(w, 500, "Failed to resolve credential for capability")
+		jsonError(w, 500, "[BSA:SPINE/PROVIDERS] Failed to resolve credential for capability")
 		return
 	}
 
@@ -268,7 +268,7 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	proxyReq, err := http.NewRequest(body.Method, body.URL, reqBody)
 	if err != nil {
-		jsonError(w, 400, "Invalid request: "+err.Error())
+		jsonError(w, 400, "[BSA:SPINE/PROVIDERS] Invalid request: "+err.Error())
 		return
 	}
 
@@ -292,7 +292,7 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	resp, err := client.Do(proxyReq)
 	if err != nil {
 		log.Printf("[proxy/request] error for agent %s, provider %s: %v", agent.Name, body.Capability, err)
-		jsonError(w, 502, "Upstream request failed: "+err.Error())
+		jsonError(w, 502, "[BSA:SPINE/PROVIDERS] Upstream request failed: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
