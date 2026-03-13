@@ -802,7 +802,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 
 	keys, statusCode, errMsg := s.resolveInferenceKeys(agent, "anthropic")
 	if statusCode != 0 {
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/anthropic denied: "+errMsg)
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.request", "inference/anthropic denied: "+errMsg)
 		jsonError(w, statusCode, errMsg)
 		return
 	}
@@ -898,7 +898,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 			headers["anthropic-version"] = clientVersion
 		}
 
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request",
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.request",
 			fmt.Sprintf(`inference/anthropic model=%s path=%s attempt=%d totalKeys=%d`,
 				model, providerPath, attempt+1, len(keys)))
 
@@ -909,7 +909,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.error",
+			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.error",
 				fmt.Sprintf(`inference/anthropic model=%s error=%s attempt=%d`, model, err.Error(), attempt+1))
 			if attempt == maxAttempts-1 {
 				jsonError(w, http.StatusBadGateway, "[BSA:SPINE/INFERENCE] Provider request failed: "+err.Error())
@@ -925,7 +925,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 			resp.Body.Close()
 			lastRateLimitStatus = resp.StatusCode
 			lastRateLimitResp = body
-			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.rate_limited",
+			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.rate_limited",
 				fmt.Sprintf(`inference/anthropic model=%s status=%d attempt=%d latencyMs=%d`,
 					model, resp.StatusCode, attempt+1, latencyMs))
 			continue
@@ -934,7 +934,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			errorText, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.error",
+			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.error",
 				fmt.Sprintf(`inference/anthropic model=%s status=%d latencyMs=%d`, model, resp.StatusCode, latencyMs))
 			ct := resp.Header.Get("Content-Type")
 			if ct == "" {
@@ -947,7 +947,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.streaming",
+			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.streaming",
 				fmt.Sprintf(`inference/anthropic model=%s latencyMs=%d keyIdx=%d totalKeys=%d`,
 					model, latencyMs, attempt+1, len(keys)))
 			streamInferenceResponse(w, resp.Body, latencyMs, "anthropic", s.Tap, tapCtxAnthropic)
@@ -956,7 +956,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 
 		responseBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.complete",
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.complete",
 			fmt.Sprintf(`inference/anthropic model=%s latencyMs=%d keyIdx=%d totalKeys=%d`,
 				model, latencyMs, attempt+1, len(keys)))
 
@@ -1008,7 +1008,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	keys, statusCode, errMsg := s.resolveInferenceKeys(agent, "openai")
 	if statusCode != 0 {
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+errMsg)
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.request", "inference/openai denied: "+errMsg)
 		jsonError(w, statusCode, errMsg)
 		return
 	}
@@ -1023,7 +1023,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	authResult, err := resolveOpenAIAuth(apiKey)
 	if err != nil {
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+err.Error())
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.request", "inference/openai denied: "+err.Error())
 		jsonError(w, http.StatusBadRequest, "[BSA:SPINE/INFERENCE] "+err.Error())
 		return
 	}
@@ -1043,7 +1043,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	if authResult.Expires > 0 && time.Now().UnixMilli() > authResult.Expires {
 		errMsg := "[BSA:SPINE/INFERENCE] OpenAI OAuth token appears expired in broker secret; re-auth required."
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+errMsg)
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.request", "inference/openai denied: "+errMsg)
 		jsonError(w, http.StatusUnauthorized, errMsg)
 		return
 	}
@@ -1085,7 +1085,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 		embKey, err := s.DB.GetSecretForAgent(agent.AccountID, agent.ID, "OPENAI_API_KEY", s.MasterKey)
 		if err != nil {
 			errMsg := "[BSA:SPINE/INFERENCE] Embedding request requires OPENAI_API_KEY in broker secret store (OPENAI_TOKEN oauth bundle cannot access embeddings)."
-			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request", "inference/openai denied: "+errMsg)
+			s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.request", "inference/openai denied: "+errMsg)
 			jsonError(w, http.StatusBadRequest, errMsg)
 			return
 		}
@@ -1137,7 +1137,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	if shouldUseCodex {
 		logPath = "/codex/responses"
 	}
-	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.request",
+	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.request",
 		fmt.Sprintf(`inference/openai model=%s path=%s authMode=%s oauthExpires=%d`,
 			model, logPath, string(effectiveMode), authResult.Expires))
 
@@ -1173,7 +1173,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := makeReq(finalBody)
 	if err != nil {
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.error",
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.error",
 			fmt.Sprintf(`inference/openai model=%s error=%s`, model, err.Error()))
 		jsonError(w, http.StatusBadGateway, "[BSA:SPINE/INFERENCE] Provider request failed: "+err.Error())
 		return
@@ -1198,7 +1198,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errorText, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.error",
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.error",
 			fmt.Sprintf(`inference/openai model=%s status=%d latencyMs=%d`, model, resp.StatusCode, latencyMs))
 		ct := resp.Header.Get("Content-Type")
 		if ct == "" {
@@ -1212,7 +1212,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	upstreamCT := resp.Header.Get("Content-Type")
 	if strings.Contains(upstreamCT, "text/event-stream") || shouldUseCodex {
-		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.streaming",
+		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.streaming",
 			fmt.Sprintf(`inference/openai model=%s latencyMs=%d`, model, latencyMs))
 		streamInferenceResponse(w, resp.Body, latencyMs, "openai", s.Tap, tapCtxOpenAI)
 		return
@@ -1220,7 +1220,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	responseBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "proxy.complete",
+	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.complete",
 		fmt.Sprintf(`inference/openai model=%s latencyMs=%d`, model, latencyMs))
 
 	if s.Tap != nil {
