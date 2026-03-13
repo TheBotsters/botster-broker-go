@@ -44,18 +44,18 @@ func (s *Server) handleInferenceStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !authed {
-		jsonError(w, 401, "Unauthorized")
+		jsonError(w, 401, "[BSA:SPINE/TAPSTREAM] Unauthorized")
 		return
 	}
 
 	if s.Tap == nil {
-		jsonError(w, 503, "Inference tap not initialized")
+		jsonError(w, 503, "[BSA:SPINE/TAPSTREAM] Inference tap not initialized")
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		jsonError(w, 500, "Streaming not supported")
+		jsonError(w, 500, "[BSA:SPINE/TAPSTREAM] Streaming not supported")
 		return
 	}
 
@@ -111,7 +111,7 @@ func (s *Server) handleCreateScopedToken(w http.ResponseWriter, r *http.Request)
 
 	// Scoped tokens cannot themselves create scoped tokens
 	if getScopedCaps(r) != nil {
-		jsonError(w, 403, "Scoped tokens cannot create further scoped tokens")
+		jsonError(w, 403, "[BSA:SPINE/TAPSTREAM] Scoped tokens cannot create further scoped tokens")
 		return
 	}
 
@@ -121,18 +121,18 @@ func (s *Server) handleCreateScopedToken(w http.ResponseWriter, r *http.Request)
 		TTLSeconds   int      `json:"ttlSeconds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid JSON body")
+		jsonError(w, 400, "[BSA:SPINE/TAPSTREAM] Invalid JSON body")
 		return
 	}
 	if len(body.Capabilities) == 0 {
-		jsonError(w, 400, "capabilities required (non-empty array)")
+		jsonError(w, 400, "[BSA:SPINE/TAPSTREAM] capabilities required (non-empty array)")
 		return
 	}
 
 	// Sanitize capabilities — reject any that look dangerous
 	for _, cap := range body.Capabilities {
 		if strings.ContainsAny(cap, "\n\r\t") {
-			jsonError(w, 400, "Invalid capability string")
+			jsonError(w, 400, "[BSA:SPINE/TAPSTREAM] Invalid capability string")
 			return
 		}
 	}
@@ -146,7 +146,7 @@ func (s *Server) handleCreateScopedToken(w http.ResponseWriter, r *http.Request)
 		body.TTLSeconds,
 	)
 	if err != nil {
-		jsonError(w, 500, "Failed to create scoped token: "+err.Error())
+		jsonError(w, 500, "[BSA:SPINE/TAPSTREAM] Failed to create scoped token: "+err.Error())
 		return
 	}
 

@@ -264,6 +264,20 @@ Safe mode is the emergency stop. When activated:
 
 Togglable from the dashboard UI. It's the "big red button" — if an agent is misbehaving, a human can stop it instantly without taking down the Spine or affecting other agents.
 
+## Error Message Prefixing Standard (BSA Interop)
+
+Because broker-originated errors may be surfaced inside other BSA components (e.g., OpenClaw messages), error text must include a component prefix.
+
+Format:
+- `[BSA:SPINE/<subcomponent>] <message>`
+
+Examples:
+- `[BSA:SPINE/DASHBOARD] Not authenticated`
+- `[BSA:SPINE/HUB] Actuator not connected`
+- `[BSA:SPINE/TAPSTREAM] Streaming not supported`
+
+This makes cross-component debugging unambiguous in merged logs and chat surfaces.
+
 ## Security Properties
 
 | Property | Mechanism |

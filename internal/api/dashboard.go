@@ -16,14 +16,14 @@ import (
 func (s *Server) handleDashboardData(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/DASHBOARD] Not authenticated")
 		return
 	}
 
 	// Agents
 	agents, err := s.DB.ListAgentsByAccount(accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list agents")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to list agents")
 		return
 	}
 	agentList := make([]map[string]interface{}, len(agents))
@@ -42,7 +42,7 @@ func (s *Server) handleDashboardData(w http.ResponseWriter, r *http.Request) {
 		WHERE account_id = ? ORDER BY created_at
 	`, accountID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list actuators")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to list actuators")
 		return
 	}
 	defer rows.Close()
@@ -95,7 +95,7 @@ func (s *Server) handleDashboardData(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDashboardSafeToggle(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/DASHBOARD] Not authenticated")
 		return
 	}
 
@@ -103,7 +103,7 @@ func (s *Server) handleDashboardSafeToggle(w http.ResponseWriter, r *http.Reques
 	newSafe := !current
 
 	if err := s.DB.SetGlobalSafe(newSafe); err != nil {
-		jsonError(w, 500, "Failed to toggle global safe mode")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to toggle global safe mode")
 		return
 	}
 
@@ -116,26 +116,26 @@ func (s *Server) handleDashboardSafeToggle(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleDashboardAgentSafeToggle(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/DASHBOARD] Not authenticated")
 		return
 	}
 
 	agentID := chi.URLParam(r, "id")
 	agent, err := s.DB.GetAgentByID(agentID)
 	if err != nil || agent == nil {
-		jsonError(w, 404, "Agent not found")
+		jsonError(w, 404, "[BSA:SPINE/DASHBOARD] Agent not found")
 		return
 	}
 
 	// Verify agent belongs to this account
 	if agent.AccountID != accountID {
-		jsonError(w, 403, "Agent does not belong to this account")
+		jsonError(w, 403, "[BSA:SPINE/DASHBOARD] Agent does not belong to this account")
 		return
 	}
 
 	newSafe := !agent.Safe
 	if err := s.DB.SetAgentSafe(agentID, newSafe); err != nil {
-		jsonError(w, 500, "Failed to toggle safe mode")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to toggle safe mode")
 		return
 	}
 
@@ -156,22 +156,22 @@ func (s *Server) handleDashboardAgentSafeToggle(w http.ResponseWriter, r *http.R
 func (s *Server) handleDashboardActuatorCapabilitiesGet(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/DASHBOARD] Not authenticated")
 		return
 	}
 	actuatorID := chi.URLParam(r, "id")
 	actuator, err := s.DB.GetActuatorByID(actuatorID)
 	if err != nil || actuator == nil {
-		jsonError(w, 404, "Actuator not found")
+		jsonError(w, 404, "[BSA:SPINE/DASHBOARD] Actuator not found")
 		return
 	}
 	if actuator.AccountID != accountID {
-		jsonError(w, 403, "Actuator does not belong to this account")
+		jsonError(w, 403, "[BSA:SPINE/DASHBOARD] Actuator does not belong to this account")
 		return
 	}
 	caps, err := s.DB.ListActuatorCapabilities(actuatorID)
 	if err != nil {
-		jsonError(w, 500, "Failed to list actuator capabilities")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to list actuator capabilities")
 		return
 	}
 	jsonResponse(w, 200, map[string]interface{}{"actuator_id": actuatorID, "capabilities": caps})
@@ -181,24 +181,24 @@ func (s *Server) handleDashboardActuatorCapabilitiesGet(w http.ResponseWriter, r
 func (s *Server) handleDashboardActuatorCapabilitiesSet(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/DASHBOARD] Not authenticated")
 		return
 	}
 	actuatorID := chi.URLParam(r, "id")
 	actuator, err := s.DB.GetActuatorByID(actuatorID)
 	if err != nil || actuator == nil {
-		jsonError(w, 404, "Actuator not found")
+		jsonError(w, 404, "[BSA:SPINE/DASHBOARD] Actuator not found")
 		return
 	}
 	if actuator.AccountID != accountID {
-		jsonError(w, 403, "Actuator does not belong to this account")
+		jsonError(w, 403, "[BSA:SPINE/DASHBOARD] Actuator does not belong to this account")
 		return
 	}
 	var body struct {
 		Capabilities []string `json:"capabilities"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "Invalid request body")
+		jsonError(w, 400, "[BSA:SPINE/DASHBOARD] Invalid request body")
 		return
 	}
 	norm := make([]string, 0, len(body.Capabilities))
@@ -212,7 +212,7 @@ func (s *Server) handleDashboardActuatorCapabilitiesSet(w http.ResponseWriter, r
 		norm = append(norm, c)
 	}
 	if err := s.DB.ReplaceActuatorCapabilities(actuatorID, norm); err != nil {
-		jsonError(w, 500, "Failed to update actuator capabilities")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to update actuator capabilities")
 		return
 	}
 	s.DB.LogAudit(&accountID, nil, &actuatorID, "actuator.capabilities.update", strings.Join(norm, ","))
@@ -223,17 +223,17 @@ func (s *Server) handleDashboardActuatorCapabilitiesSet(w http.ResponseWriter, r
 func (s *Server) handleDashboardActuatorLogs(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/DASHBOARD] Not authenticated")
 		return
 	}
 	actuatorID := chi.URLParam(r, "id")
 	actuator, err := s.DB.GetActuatorByID(actuatorID)
 	if err != nil || actuator == nil {
-		jsonError(w, 404, "Actuator not found")
+		jsonError(w, 404, "[BSA:SPINE/DASHBOARD] Actuator not found")
 		return
 	}
 	if actuator.AccountID != accountID {
-		jsonError(w, 403, "Actuator does not belong to this account")
+		jsonError(w, 403, "[BSA:SPINE/DASHBOARD] Actuator does not belong to this account")
 		return
 	}
 	limit := 100
@@ -244,7 +244,7 @@ func (s *Server) handleDashboardActuatorLogs(w http.ResponseWriter, r *http.Requ
 	}
 	entries, err := s.DB.ListAuditLog(&accountID, limit)
 	if err != nil {
-		jsonError(w, 500, "Failed to query logs")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to query logs")
 		return
 	}
 	out := []map[string]interface{}{}
@@ -262,7 +262,7 @@ func (s *Server) handleDashboardActuatorLogs(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleDashboardInferenceTail(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Header.Get("X-Account-ID")
 	if accountID == "" {
-		jsonError(w, 401, "Not authenticated")
+		jsonError(w, 401, "[BSA:SPINE/DASHBOARD] Not authenticated")
 		return
 	}
 	limit := 100
@@ -273,7 +273,7 @@ func (s *Server) handleDashboardInferenceTail(w http.ResponseWriter, r *http.Req
 	}
 	entries, err := s.DB.ListAuditLog(&accountID, limit)
 	if err != nil {
-		jsonError(w, 500, "Failed to query logs")
+		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to query logs")
 		return
 	}
 	out := []map[string]interface{}{}
