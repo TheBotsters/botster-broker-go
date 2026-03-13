@@ -242,19 +242,37 @@ func (s *Server) handleDashboardActuatorLogs(w http.ResponseWriter, r *http.Requ
 			limit = n
 		}
 	}
-	entries, err := s.DB.ListAuditLog(&accountID, limit)
+
+	rows, err := s.DB.Query(`
+		SELECT id, action, detail, created_at
+		FROM audit_log
+		WHERE account_id = ? AND actuator_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?
+	`, accountID, actuatorID, limit)
 	if err != nil {
 		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to query logs")
 		return
 	}
+	defer rows.Close()
+
 	out := []map[string]interface{}{}
-	for _, e := range entries {
-		if e.ActuatorID != nil && *e.ActuatorID == actuatorID {
-			out = append(out, map[string]interface{}{
-				"id": e.ID, "action": e.Action, "detail": e.Detail, "created_at": e.CreatedAt,
-			})
+	for rows.Next() {
+		var id, action, createdAt string
+		var detail *string
+		if err := rows.Scan(&id, &action, &detail, &createdAt); err != nil {
+			jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to decode logs")
+			return
 		}
+		d := ""
+		if detail != nil {
+			d = *detail
+		}
+		out = append(out, map[string]interface{}{
+			"id": id, "action": action, "detail": d, "created_at": createdAt,
+		})
 	}
+
 	jsonResponse(w, 200, map[string]interface{}{"actuator_id": actuatorID, "entries": out})
 }
 
@@ -271,18 +289,40 @@ func (s *Server) handleDashboardInferenceTail(w http.ResponseWriter, r *http.Req
 			limit = n
 		}
 	}
-	entries, err := s.DB.ListAuditLog(&accountID, limit)
+
+	rows, err := s.DB.Query(`
+		SELECT id, agent_id, action, detail, created_at
+		FROM audit_log
+		WHERE account_id = ? AND action LIKE 'inference.%'
+		ORDER BY created_at DESC
+		LIMIT ?
+	`, accountID, limit)
 	if err != nil {
 		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to query logs")
 		return
 	}
+	defer rows.Close()
+
 	out := []map[string]interface{}{}
-	for _, e := range entries {
-		if strings.HasPrefix(e.Action, "inference.") {
-			out = append(out, map[string]interface{}{
-				"id": e.ID, "agent_id": e.AgentID, "action": e.Action, "detail": e.Detail, "created_at": e.CreatedAt,
-			})
+	for rows.Next() {
+		var id, action, createdAt string
+		var agentID, detail *string
+		if err := rows.Scan(&id, &agentID, &action, &detail, &createdAt); err != nil {
+			jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to decode logs")
+			return
 		}
+		a := ""
+		if agentID != nil {
+			a = *agentID
+		}
+		d := ""
+		if detail != nil {
+			d = *detail
+		}
+		out = append(out, map[string]interface{}{
+			"id": id, "agent_id": a, "action": action, "detail": d, "created_at": createdAt,
+		})
 	}
+
 	jsonResponse(w, 200, map[string]interface{}{"entries": out, "server_time": time.Now().UTC().Format(time.RFC3339)})
 }

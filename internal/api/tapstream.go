@@ -20,9 +20,11 @@ import (
 //
 // Query: ?agent_id=<optional> — filter to a specific agent's events.
 func (s *Server) handleInferenceStream(w http.ResponseWriter, r *http.Request) {
-	// Auth: accept session-auth account header, root key, or valid agent token
+	// Auth: accept valid web session, root key, or valid agent token.
+	// Note: do not trust raw X-Account-ID from clients; requireAuth middleware
+	// sets it for dashboard routes, but we independently verify session here.
 	authed := false
-	if r.Header.Get("X-Account-ID") != "" {
+	if s.authenticateWeb(r) != nil {
 		authed = true
 	}
 	if !authed && s.requireRoot(r) {
