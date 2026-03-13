@@ -709,10 +709,20 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/secrets/{id}/grant — admin grants a secret to an agent.
 func (s *Server) handleGrantSecretAdmin(w http.ResponseWriter, r *http.Request) {
+	isRoot, adminAgent, ok := s.requireRootOrAdmin(w, r)
+	if !ok {
+		return
+	}
+
 	secretID := chi.URLParam(r, "id")
 	secret, err := s.DB.GetSecretByID(secretID)
 	if err != nil || secret == nil {
 		jsonError(w, 404, "Secret not found")
+		return
+	}
+
+	if !isRoot && !requireAccountScope(adminAgent.AccountID, secret.AccountID) {
+		jsonError(w, 403, "Forbidden: account scope violation")
 		return
 	}
 
@@ -721,6 +731,16 @@ func (s *Server) handleGrantSecretAdmin(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
 		jsonError(w, 400, "agent_id required")
+		return
+	}
+
+	targetAgent, err := s.DB.GetAgentByID(body.AgentID)
+	if err != nil || targetAgent == nil {
+		jsonError(w, 404, "Agent not found")
+		return
+	}
+	if targetAgent.AccountID != secret.AccountID {
+		jsonError(w, 403, "Forbidden: account scope violation")
 		return
 	}
 
