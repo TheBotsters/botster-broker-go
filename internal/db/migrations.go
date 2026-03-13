@@ -231,6 +231,29 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version:     10,
+		description: "Make capability foreign keys explicit ON DELETE RESTRICT",
+		sql: `
+			CREATE TABLE IF NOT EXISTS capabilities_new (
+				id TEXT PRIMARY KEY,
+				account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				display_name TEXT NOT NULL,
+				provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE RESTRICT,
+				secret_id TEXT NOT NULL REFERENCES secrets(id) ON DELETE RESTRICT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(account_id, name)
+			);
+
+			INSERT INTO capabilities_new (id, account_id, name, display_name, provider_id, secret_id, created_at)
+			SELECT id, account_id, name, display_name, provider_id, secret_id, created_at
+			FROM capabilities;
+
+			DROP TABLE capabilities;
+			ALTER TABLE capabilities_new RENAME TO capabilities;
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.
