@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/TheBotsters/botster-broker-go/internal/db"
+	"github.com/coder/websocket"
 )
 
 // Message types for the WebSocket protocol.
@@ -204,6 +204,22 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 			cmd.resultCh <- errMsg
 		}
 		log.Printf("[hub] Command %s blocked: actuator %s is recovery-only", cmd.msg.ID, actuator.ID)
+		return
+	}
+
+	allowed, err := h.db.ActuatorCapabilityAllowed(actuator.ID, cmd.msg.Capability)
+	if err != nil {
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "Capability check failed"}
+		if cmd.resultCh != nil {
+			cmd.resultCh <- errMsg
+		}
+		return
+	}
+	if !allowed {
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "Actuator capability not allowed"}
+		if cmd.resultCh != nil {
+			cmd.resultCh <- errMsg
+		}
 		return
 	}
 

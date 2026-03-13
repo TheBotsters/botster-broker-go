@@ -54,6 +54,7 @@
     <a href="#" class="active" data-tab="overview" onclick="switchTab('overview', this)">Overview</a>
     <a href="#" data-tab="agents" onclick="switchTab('agents', this)">Agents</a>
     <a href="#" data-tab="actuators" onclick="switchTab('actuators', this)">Actuators</a>
+    <a href="#" data-tab="inference" onclick="switchTab('inference', this)">Inference</a>
     <a href="/secrets">Secrets</a>
       </nav>
 
@@ -87,6 +88,28 @@
   <div id="tab-actuators" class="tab-content">
     <h2>Actuators</h2>
     <div id="actuators-list"></div>
+
+    <h2 style="margin-top:20px;">Actuator Log Tail</h2>
+    <div class="card">
+      <label for="actuator-log-select">Actuator:</label>
+      <select id="actuator-log-select" onchange="loadActuatorLogs()" style="margin:0 8px;"></select>
+      <button onclick="loadActuatorLogs()">Refresh</button>
+      <pre id="actuator-log-tail" style="margin-top:10px; max-height:260px; overflow:auto; white-space:pre-wrap;"></pre>
+    </div>
+  </div>
+
+  <!-- Inference tab -->
+  <div id="tab-inference" class="tab-content">
+    <h2>Agent Inference Log Tail</h2>
+    <div class="card">
+      <button onclick="refreshInferenceTail()">Refresh Tail</button>
+      <pre id="inference-tail" style="margin-top:10px; max-height:260px; overflow:auto; white-space:pre-wrap;"></pre>
+    </div>
+    <h2 style="margin-top:20px;">Live Inference Stream</h2>
+    <div class="card">
+      <button onclick="toggleInferenceStream()" id="toggle-inference-stream">Start Stream</button>
+      <pre id="inference-stream" style="margin-top:10px; max-height:260px; overflow:auto; white-space:pre-wrap;"></pre>
+    </div>
   </div>
 
   <script src="main.js"></script>

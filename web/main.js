@@ -68,6 +68,9 @@ function renderActuator(actuator) {
           <span class="badge ${statusClass}">${actuator.status}</span>
           <span class="badge ${typeClass}">${actuator.type}</span>
           <div class="meta">ID: ${actuator.id}${actuator.last_seen_at ? ' · Last seen: ' + new Date(actuator.last_seen_at).toLocaleString() : ''}</div>
+          <div class="meta" style="margin-top:8px;">Capabilities (comma-separated):</div>
+          <input id="caps-${actuator.id}" placeholder="exec, notify, wake" style="width:360px; margin-top:4px; background:#0d1117; color:#c9d1d9; border:1px solid #30363d; padding:6px; border-radius:6px;" />
+          <button style="margin-left:8px;" onclick="saveActuatorCapabilities('${actuator.id}')">Save</button>
         </div>
       </div>
     </div>
@@ -75,6 +78,8 @@ function renderActuator(actuator) {
 }
 
 // --- Data loading ---
+
+let _inferenceES = null;
 
 async function loadDashboard() {
   const auth = await api('/auth/status');
@@ -116,7 +121,19 @@ async function loadDashboard() {
     }
     if (dashboard.actuators) {
       document.getElementById('actuators-list').innerHTML = dashboard.actuators.map(renderActuator).join('');
+
+      const sel = document.getElementById('actuator-log-select');
+      if (sel) {
+        sel.innerHTML = dashboard.actuators.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+      }
+
+      for (const a of dashboard.actuators) {
+        await loadActuatorCapabilities(a.id);
+      }
+      await loadActuatorLogs();
     }
+
+    await refreshInferenceTail();
   }
 }
 
@@ -139,6 +156,73 @@ async function toggleAgentSafe(agentId) {
 async function logout() {
   await api('/auth/logout', { method: 'POST' });
   window.location.href = '/login';
+}
+
+async function loadActuatorCapabilities(actuatorId) {
+  const res = await api('/dashboard/api/actuators/' + actuatorId + '/capabilities');
+  if (!res) return;
+  const el = document.getElementById('caps-' + actuatorId);
+  if (el) el.value = (res.capabilities || []).join(', ');
+}
+
+async function saveActuatorCapabilities(actuatorId) {
+  const el = document.getElementById('caps-' + actuatorId);
+  if (!el) return;
+  const capabilities = el.value.split(',').map(s => s.trim()).filter(Boolean);
+  const res = await api('/dashboard/api/actuators/' + actuatorId + '/capabilities', {
+    method: 'POST',
+    body: JSON.stringify({ capabilities }),
+  });
+  if (res) {
+    await loadActuatorCapabilities(actuatorId);
+  }
+}
+
+async function loadActuatorLogs() {
+  const sel = document.getElementById('actuator-log-select');
+  const out = document.getElementById('actuator-log-tail');
+  if (!sel || !out || !sel.value) return;
+  const res = await api('/dashboard/api/actuators/' + sel.value + '/logs?limit=100');
+  if (!res) return;
+  const lines = (res.entries || []).map(e => `[${e.created_at}] ${e.action} ${e.detail || ''}`);
+  out.textContent = lines.join('\n');
+}
+
+async function refreshInferenceTail() {
+  const out = document.getElementById('inference-tail');
+  if (!out) return;
+  const res = await api('/dashboard/api/inference/tail?limit=100');
+  if (!res) return;
+  const lines = (res.entries || []).map(e => `[${e.created_at}] ${e.action} ${e.detail || ''}`);
+  out.textContent = lines.join('\n');
+}
+
+function toggleInferenceStream() {
+  const btn = document.getElementById('toggle-inference-stream');
+  const out = document.getElementById('inference-stream');
+  if (!btn || !out) return;
+
+  if (_inferenceES) {
+    _inferenceES.close();
+    _inferenceES = null;
+    btn.textContent = 'Start Stream';
+    return;
+  }
+
+  _inferenceES = new EventSource('/dashboard/api/inference/stream');
+  _inferenceES.onmessage = (evt) => {
+    try {
+      const ev = JSON.parse(evt.data);
+      const line = `[${ev.timestamp || ''}] ${ev.agent_id || ''} ${ev.model || ''} ${ev.status || ''}`;
+      out.textContent = (line + '\n' + out.textContent).split('\n').slice(0, 200).join('\n');
+    } catch (_) {}
+  };
+  _inferenceES.onerror = () => {
+    btn.textContent = 'Start Stream';
+    if (_inferenceES) _inferenceES.close();
+    _inferenceES = null;
+  };
+  btn.textContent = 'Stop Stream';
 }
 
 // --- Init ---

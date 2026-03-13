@@ -15,12 +15,17 @@ import (
 //
 // Streams inference events as Server-Sent Events (SSE).
 // Auth: session cookie OR X-Admin-Key (master key) for dashboard access,
-//       OR a regular agent token.
+//
+//	OR a regular agent token.
+//
 // Query: ?agent_id=<optional> — filter to a specific agent's events.
 func (s *Server) handleInferenceStream(w http.ResponseWriter, r *http.Request) {
-	// Auth: accept root key or a valid agent token
+	// Auth: accept session-auth account header, root key, or valid agent token
 	authed := false
-	if s.requireRoot(r) {
+	if r.Header.Get("X-Account-ID") != "" {
+		authed = true
+	}
+	if !authed && s.requireRoot(r) {
 		authed = true
 	}
 	if !authed {
