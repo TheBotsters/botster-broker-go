@@ -101,6 +101,7 @@ func (s *Server) NewRouter() chi.Router {
 		// Secret management (root or admin scoped)
 		r.Post("/secrets", s.handleCreateSecret)
 		r.Put("/secrets/{id}", s.handleUpdateSecret)
+		r.Post("/secrets/{id}/grant", s.handleGrantSecretAdmin)
 
 		// Capability management (root or admin scoped)
 		r.Post("/capabilities", s.handleCreateCapability)

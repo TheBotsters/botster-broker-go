@@ -706,3 +706,28 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResponse(w, 200, formatAudit(entries))
 }
+
+// POST /api/secrets/{id}/grant — admin grants a secret to an agent.
+func (s *Server) handleGrantSecretAdmin(w http.ResponseWriter, r *http.Request) {
+	secretID := chi.URLParam(r, "id")
+	secret, err := s.DB.GetSecretByID(secretID)
+	if err != nil || secret == nil {
+		jsonError(w, 404, "Secret not found")
+		return
+	}
+
+	var body struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
+		jsonError(w, 400, "agent_id required")
+		return
+	}
+
+	if err := s.DB.GrantSecretToAgent(secretID, body.AgentID); err != nil {
+		jsonError(w, 500, "Failed to grant secret")
+		return
+	}
+	s.DB.LogAudit(&secret.AccountID, &body.AgentID, nil, "secret.grant", secret.Name)
+	jsonResponse(w, 200, map[string]bool{"ok": true})
+}
