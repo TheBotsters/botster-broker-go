@@ -196,6 +196,7 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
+		_ = h.db.RecordCommandResult(cmd.msg.ID, "error", errMsg.Error)
 		return
 	}
 	if conn.RecoveryOnly {
@@ -220,8 +221,12 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
+		_ = h.db.RecordCommandResult(cmd.msg.ID, "error", errMsg.Error)
 		return
 	}
+
+	payloadBytes, _ := json.Marshal(cmd.msg.Payload)
+	_ = h.db.RecordCommandInsert(cmd.msg.ID, cmd.agentID, actuator.ID, cmd.msg.Capability, string(payloadBytes))
 
 	// Register pending result if sync
 	if cmd.resultCh != nil {
@@ -385,7 +390,19 @@ func (c *Connection) readPump(ctx context.Context) {
 			}
 
 		case TypeCommandResult:
-			// Result from actuator — deliver to pending sync request or brain
+			// Result from actuator — persist command lifecycle update, then deliver.
+			resultBytes, _ := json.Marshal(msg.Result)
+			resultText := string(resultBytes)
+			if msg.Error != "" {
+				resultText = msg.Error
+			}
+			status := msg.Status
+			if status == "" {
+				status = "ok"
+			}
+			_ = c.hub.db.RecordCommandResult(msg.ID, status, resultText)
+
+			// Deliver to pending sync request or brain
 			c.hub.pendingMu.Lock()
 			ch, ok := c.hub.pending[msg.ID]
 			if ok {

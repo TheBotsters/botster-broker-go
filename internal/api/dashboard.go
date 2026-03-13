@@ -244,12 +244,12 @@ func (s *Server) handleDashboardActuatorLogs(w http.ResponseWriter, r *http.Requ
 	}
 
 	rows, err := s.DB.Query(`
-		SELECT id, action, detail, created_at
-		FROM audit_log
-		WHERE account_id = ? AND actuator_id = ?
+		SELECT id, capability, status, result, created_at, completed_at
+		FROM commands
+		WHERE actuator_id = ?
 		ORDER BY created_at DESC
 		LIMIT ?
-	`, accountID, actuatorID, limit)
+	`, actuatorID, limit)
 	if err != nil {
 		jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to query logs")
 		return
@@ -258,18 +258,29 @@ func (s *Server) handleDashboardActuatorLogs(w http.ResponseWriter, r *http.Requ
 
 	out := []map[string]interface{}{}
 	for rows.Next() {
-		var id, action, createdAt string
-		var detail *string
-		if err := rows.Scan(&id, &action, &detail, &createdAt); err != nil {
+		var id, capability, status, createdAt string
+		var result, completedAt *string
+		if err := rows.Scan(&id, &capability, &status, &result, &createdAt, &completedAt); err != nil {
 			jsonError(w, 500, "[BSA:SPINE/DASHBOARD] Failed to decode logs")
 			return
 		}
-		d := ""
-		if detail != nil {
-			d = *detail
+		detail := ""
+		if result != nil {
+			detail = *result
+			if len(detail) > 400 {
+				detail = detail[:400] + "..."
+			}
+		}
+		finished := ""
+		if completedAt != nil {
+			finished = *completedAt
 		}
 		out = append(out, map[string]interface{}{
-			"id": id, "action": action, "detail": d, "created_at": createdAt,
+			"id":           id,
+			"action":       "command." + status,
+			"detail":       "capability=" + capability + " result=" + detail,
+			"created_at":   createdAt,
+			"completed_at": finished,
 		})
 	}
 
