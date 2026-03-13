@@ -1,5 +1,9 @@
 #!/bin/bash
 # Deploy broker from git repo to environment
+#
+# SAFETY POLICY:
+# Do NOT run broker self-deploy from an agent/session hosted by the same broker instance.
+# Always operate from a separate broker/agent (or direct human ops) to keep recovery paths intact.
 
 set -e
 

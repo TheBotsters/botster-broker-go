@@ -292,6 +292,16 @@ These run on the actuator. The agent invokes them via the command channel. The t
 
 Single Go binary + SQLite database. No external dependencies.
 
+### Operational Safety Policy (Control-Plane Separation)
+
+When deploying or modifying a broker instance, **do not perform that operation from an agent/session running on that same broker instance**.
+
+Required practice:
+- Use a **separate agent on a separate broker** (or direct human ops) to deploy/restart/migrate the target broker.
+- Preserve control-plane separation so a bad deploy cannot self-lock the operator out of recovery paths.
+
+In short: **a broker should be changed from outside itself, never from within itself**.
+
 ```bash
 go build -o botster-broker ./cmd/broker
 
