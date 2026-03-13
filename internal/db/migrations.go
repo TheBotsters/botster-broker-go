@@ -256,6 +256,19 @@ var migrations = []migration{
 			ALTER TABLE capabilities_new RENAME TO capabilities;
 		`,
 	},
+	{
+		version:     11,
+		description: "Add per-actuator command capability allowlist table",
+		sql: `
+			CREATE TABLE IF NOT EXISTS actuator_capabilities (
+				id TEXT PRIMARY KEY,
+				actuator_id TEXT NOT NULL REFERENCES actuators(id) ON DELETE CASCADE,
+				capability TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(actuator_id, capability)
+			);
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.

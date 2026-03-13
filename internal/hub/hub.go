@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/TheBotsters/botster-broker-go/internal/db"
+	"github.com/coder/websocket"
 )
 
 // Message types for the WebSocket protocol.
@@ -159,7 +159,7 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 	// Check safe mode
 	globalSafe, _ := h.db.GetGlobalSafe()
 	if globalSafe {
-		errMsg := WSMessage{Type: TypeSafeModeError, ID: cmd.msg.ID, Error: "Global safe mode is active"}
+		errMsg := WSMessage{Type: TypeSafeModeError, ID: cmd.msg.ID, Error: "[BSA:SPINE/HUB] Global safe mode is active"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
@@ -169,7 +169,7 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 
 	agent, _ := h.db.GetAgentByID(cmd.agentID)
 	if agent != nil && agent.Safe {
-		errMsg := WSMessage{Type: TypeSafeModeError, ID: cmd.msg.ID, Error: "Agent safe mode is active"}
+		errMsg := WSMessage{Type: TypeSafeModeError, ID: cmd.msg.ID, Error: "[BSA:SPINE/HUB] Agent safe mode is active"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
@@ -180,7 +180,7 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 	// Resolve actuator
 	actuator, _ := h.db.ResolveActuatorForAgent(cmd.agentID)
 	if actuator == nil {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "No actuator available"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "[BSA:SPINE/HUB] No actuator available"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
@@ -192,18 +192,34 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 	h.mu.RUnlock()
 
 	if !ok {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "Actuator not connected"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "[BSA:SPINE/HUB] Actuator not connected"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
 		return
 	}
 	if conn.RecoveryOnly {
-		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "Actuator is in token recovery mode"}
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "[BSA:SPINE/HUB] Actuator is in token recovery mode"}
 		if cmd.resultCh != nil {
 			cmd.resultCh <- errMsg
 		}
 		log.Printf("[hub] Command %s blocked: actuator %s is recovery-only", cmd.msg.ID, actuator.ID)
+		return
+	}
+
+	allowed, err := h.db.ActuatorCapabilityAllowed(actuator.ID, cmd.msg.Capability)
+	if err != nil {
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "[BSA:SPINE/HUB] Capability check failed"}
+		if cmd.resultCh != nil {
+			cmd.resultCh <- errMsg
+		}
+		return
+	}
+	if !allowed {
+		errMsg := WSMessage{Type: TypeCommandResult, ID: cmd.msg.ID, Status: "error", Error: "[BSA:SPINE/HUB] Actuator capability not allowed"}
+		if cmd.resultCh != nil {
+			cmd.resultCh <- errMsg
+		}
 		return
 	}
 

@@ -175,6 +175,11 @@ func (s *Server) NewRouter() chi.Router {
 		r.Get("/api/data", s.handleDashboardData)
 		r.Post("/api/safe", s.handleDashboardSafeToggle)
 		r.Post("/api/agents/{id}/safe", s.handleDashboardAgentSafeToggle)
+		r.Get("/api/actuators/{id}/capabilities", s.handleDashboardActuatorCapabilitiesGet)
+		r.Post("/api/actuators/{id}/capabilities", s.handleDashboardActuatorCapabilitiesSet)
+		r.Get("/api/actuators/{id}/logs", s.handleDashboardActuatorLogs)
+		r.Get("/api/inference/tail", s.handleDashboardInferenceTail)
+		r.Get("/api/inference/stream", s.handleInferenceStream)
 	})
 
 	// Sync routes
