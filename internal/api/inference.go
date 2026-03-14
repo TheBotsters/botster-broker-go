@@ -526,6 +526,14 @@ func buildInferenceBody(provider string, rawBody map[string]interface{}) map[str
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
+// truncateResponseBody returns the response body truncated to maxLen bytes for audit logging.
+func truncateResponseBody(body []byte, maxLen int) string {
+	if len(body) <= maxLen {
+		return string(body)
+	}
+	return string(body[:maxLen]) + "...(truncated)"
+}
+
 // handleInference handles POST /v1/inference — generic single-key, no retry.
 func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
@@ -957,8 +965,8 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 		responseBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.complete",
-			fmt.Sprintf(`inference/anthropic model=%s latencyMs=%d keyIdx=%d totalKeys=%d`,
-				model, latencyMs, attempt+1, len(keys)))
+			fmt.Sprintf("inference/anthropic model=%s latencyMs=%d keyIdx=%d totalKeys=%d\n%s",
+				model, latencyMs, attempt+1, len(keys), truncateResponseBody(responseBody, 4096)))
 
 		if s.Tap != nil {
 			s.Tap.Publish(tap.InferenceEvent{
@@ -969,6 +977,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 				Model:     model,
 				Path:      providerPath,
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Data:      truncateResponseBody(responseBody, 4096),
 			})
 		}
 
@@ -1221,7 +1230,8 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 	responseBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	s.DB.LogAudit(&agent.AccountID, &agent.ID, nil, "inference.proxy.complete",
-		fmt.Sprintf(`inference/openai model=%s latencyMs=%d`, model, latencyMs))
+		fmt.Sprintf("inference/openai model=%s latencyMs=%d\n%s",
+			model, latencyMs, truncateResponseBody(responseBody, 4096)))
 
 	if s.Tap != nil {
 		s.Tap.Publish(tap.InferenceEvent{
@@ -1232,6 +1242,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 			Model:     model,
 			Path:      logPath,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Data:      truncateResponseBody(responseBody, 4096),
 		})
 	}
 

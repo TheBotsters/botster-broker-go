@@ -177,6 +177,7 @@ function openLogTail(id, title, url) {
   _logTail.id = id;
   _logTail.url = url;
   _logTail.paused = false;
+  _logTail.verbose = _logTail.verbose || false;
   _logTail.autoScroll = true;
 
   document.getElementById('log-tail-title').textContent = 'Log Tail — ' + title;
@@ -218,6 +219,11 @@ function toggleLogTailPause() {
   }
 }
 
+
+function toggleVerboseMode() {
+  _logTail.verbose = !_logTail.verbose;
+  fetchLogTail();
+}
 async function fetchLogTail() {
   if (!_logTail.url) return;
 
@@ -247,7 +253,21 @@ async function fetchLogTail() {
     const timeStr = ts ? formatTime(ts) : '';
     const completedStr = completed ? ' → ' + formatTime(completed) : '';
 
-    return `<div class="${lineClass}"><span class="ts">${timeStr}${completedStr}</span> <span class="action">${escHtml(action)}</span> <span class="detail">${escHtml(detail)}</span></div>`;
+    // Split detail into summary (first line) and response body (rest)
+    const nlIdx = detail.indexOf('\n');
+    const summary = nlIdx >= 0 ? detail.substring(0, nlIdx) : detail;
+    const responseBody = nlIdx >= 0 ? detail.substring(nlIdx + 1) : '';
+
+    let detailHtml;
+    if (responseBody && _logTail.verbose) {
+      detailHtml = `<span class="detail">${escHtml(summary)}</span><pre class="response-body">${escHtml(responseBody)}</pre>`;
+    } else if (responseBody) {
+      detailHtml = `<span class="detail">${escHtml(summary)} <button class="expand-btn" onclick="toggleVerboseMode()">▶ response</button></span>`;
+    } else {
+      detailHtml = `<span class="detail">${escHtml(summary)}</span>`;
+    }
+
+    return `<div class="${lineClass}"><span class="ts">${timeStr}${completedStr}</span> <span class="action">${escHtml(action)}</span> ${detailHtml}</div>`;
   }).join('');
 
   body.innerHTML = html;
