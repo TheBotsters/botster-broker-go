@@ -190,6 +190,15 @@ function openLogTail(id, title, url) {
 
   document.getElementById('log-tail-overlay').classList.add('open');
 
+  const bodyEl = document.getElementById('log-tail-body');
+  if (!bodyEl.dataset.scrollBound) {
+    bodyEl.addEventListener('scroll', () => {
+      // Newest entries are rendered at top; if user scrolls away from top, stop auto-follow.
+      _logTail.autoScroll = bodyEl.scrollTop <= 8;
+    });
+    bodyEl.dataset.scrollBound = '1';
+  }
+
   fetchLogTail();
   _logTail.timer = setInterval(() => {
     if (!_logTail.paused) fetchLogTail();
@@ -234,6 +243,10 @@ async function fetchLogTail() {
   const body = document.getElementById('log-tail-body');
   const footer = document.getElementById('log-tail-footer');
 
+  // Preserve viewport when user is inspecting older entries.
+  const prevTop = body.scrollTop;
+  const prevHeight = body.scrollHeight;
+
   if (entries.length === 0) {
     body.innerHTML = '<div class="log-empty">No log entries yet. Waiting for activity...</div>';
     footer.textContent = 'No entries';
@@ -274,7 +287,12 @@ async function fetchLogTail() {
   footer.textContent = entries.length + ' entries · updated ' + new Date().toLocaleTimeString();
 
   if (_logTail.autoScroll) {
+    // Newest-first list: pin to top while live-following.
     body.scrollTop = 0;
+  } else {
+    // Keep current viewport stable as newer rows are inserted at top.
+    const newHeight = body.scrollHeight;
+    body.scrollTop = prevTop + (newHeight - prevHeight);
   }
 }
 
