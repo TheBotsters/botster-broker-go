@@ -95,11 +95,9 @@
     .log-line .ts { color: #8b949e; }
     .log-line .action { color: #58a6ff; font-weight: bold; }
     .log-line .detail { color: #c9d1d9; }
+    .log-line .response-body { margin: 4px 0 8px 0; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 11px; color: #8b949e; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
     .log-line.error .action { color: #da3633; }
     .log-line.pending .action { color: #d29922; }
-    .log-line .response-body { margin: 4px 0 8px 0; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 11px; color: #8b949e; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
-    .log-line .expand-btn { background: none; border: 1px solid #30363d; color: #58a6ff; font-size: 11px; padding: 1px 6px; border-radius: 3px; cursor: pointer; margin-left: 4px; }
-    .log-line .expand-btn:hover { background: #21262d; }
     .log-empty {
       color: #484f58;
       text-align: center;
@@ -189,7 +187,6 @@
         <div class="controls">
           <span id="log-tail-status" class="log-tail-status">live</span>
           <button onclick="toggleLogTailPause()">Pause</button>
-          <button onclick="toggleVerboseMode()">Verbose</button>
           <button onclick="closeLogTail()">Close</button>
         </div>
       </div>
