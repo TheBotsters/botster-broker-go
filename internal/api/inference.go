@@ -526,6 +526,14 @@ func buildInferenceBody(provider string, rawBody map[string]interface{}) map[str
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
+// truncateResponseBody returns the response body truncated to maxLen bytes for the tap stream (ephemeral SSE only).
+func truncateResponseBody(body []byte, maxLen int) string {
+	if len(body) <= maxLen {
+		return string(body)
+	}
+	return string(body[:maxLen]) + "...(truncated)"
+}
+
 // handleInference handles POST /v1/inference — generic single-key, no retry.
 func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
@@ -969,6 +977,7 @@ func (s *Server) handleProxyAnthropic(w http.ResponseWriter, r *http.Request) {
 				Model:     model,
 				Path:      providerPath,
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Data:      truncateResponseBody(responseBody, 4096),
 			})
 		}
 
@@ -1232,6 +1241,7 @@ func (s *Server) handleProxyOpenAI(w http.ResponseWriter, r *http.Request) {
 			Model:     model,
 			Path:      logPath,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Data:      truncateResponseBody(responseBody, 4096),
 		})
 	}
 
