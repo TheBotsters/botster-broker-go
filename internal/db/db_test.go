@@ -28,8 +28,8 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("expected schema version 11, got %d", v)
+	if v != 12 {
+		t.Errorf("expected schema version 12, got %d", v)
 	}
 }
 

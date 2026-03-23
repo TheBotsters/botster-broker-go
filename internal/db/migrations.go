@@ -269,6 +269,13 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version:     12,
+		description: "Add workspace_root to agents for broker-local file operations",
+		sql: `
+			ALTER TABLE agents ADD COLUMN workspace_root TEXT;
+		`,
+	},
 }
 
 // migrate runs all pending migrations in order.
