@@ -27,11 +27,12 @@ type Agent struct {
 	PendingRotationID        sql.NullString
 	PendingRecoveryExpiresAt sql.NullString
 	RecoveryIssuedAt         sql.NullString
+	WorkspaceRoot            sql.NullString
 	AuthMode                 string
 }
 
 // agentScanFields returns the standard column list for agent SELECT queries.
-const agentColumns = `id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, group_id, created_at, prev_token_hash, token_rotation_expires_at, pending_encrypted_token, pending_rotation_id, pending_recovery_expires_at, recovery_issued_at`
+const agentColumns = `id, account_id, name, token_hash, encrypted_token, safe, selected_actuator_id, role, group_id, created_at, prev_token_hash, token_rotation_expires_at, pending_encrypted_token, pending_rotation_id, pending_recovery_expires_at, recovery_issued_at, workspace_root`
 
 // scanAgent scans a row into an Agent struct.
 func scanAgent(scanner interface {
@@ -42,6 +43,7 @@ func scanAgent(scanner interface {
 		&a.Safe, &a.SelectedActuatorID, &a.Role, &a.GroupID, &a.CreatedAt,
 		&a.PrevTokenHash, &a.TokenRotationExpiresAt, &a.PendingEncryptedToken,
 		&a.PendingRotationID, &a.PendingRecoveryExpiresAt, &a.RecoveryIssuedAt,
+		&a.WorkspaceRoot,
 	)
 }
 

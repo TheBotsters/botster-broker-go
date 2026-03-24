@@ -188,6 +188,24 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 		return
 	}
 
+	// Try broker-local workspace file operations first.
+	// If the command is a file op (read/write/edit) targeting the agent's workspace,
+	// the broker handles it directly — no actuator routing needed.
+	if result, handled := h.tryHandleWorkspaceOp(cmd); handled {
+		if cmd.resultCh != nil {
+			cmd.resultCh <- *result
+		} else {
+			// Async mode: send result back to the brain.
+			h.mu.RLock()
+			if brain, ok := h.brains[cmd.agentID]; ok {
+				data, _ := json.Marshal(result)
+				brain.sendCh <- data
+			}
+			h.mu.RUnlock()
+		}
+		return
+	}
+
 	// Resolve actuator
 	actuator, _ := h.db.ResolveActuatorForAgent(cmd.agentID)
 	if actuator == nil {
