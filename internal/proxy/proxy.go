@@ -70,14 +70,14 @@ type Proxy struct {
 	linkUp  atomic.Bool
 
 	// Pending auth requests.
-	authMu       sync.Mutex
-	authPending  map[string]chan link.LinkMessage // requestID → result channel
+	authMu      sync.Mutex
+	authPending map[string]chan link.LinkMessage // requestID → result channel
 
 	// Message buffer for broker restarts.
-	bufMu      sync.Mutex
-	buffer     []link.LinkMessage
-	bufBytes   int64
-	buffering  bool
+	bufMu     sync.Mutex
+	buffer    []link.LinkMessage
+	bufBytes  int64
+	buffering bool
 
 	// Connection ID counter.
 	nextID atomic.Uint64

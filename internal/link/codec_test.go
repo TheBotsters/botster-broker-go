@@ -72,11 +72,11 @@ func TestRoundTripAuthResultFail(t *testing.T) {
 
 func TestRoundTripConnect(t *testing.T) {
 	orig := LinkMessage{
-		Type:      TypeConnect,
-		ConnID:    "c1",
-		Role:      "actuator",
+		Type:       TypeConnect,
+		ConnID:     "c1",
+		Role:       "actuator",
 		ActuatorID: "act_99",
-		AccountID: "acc_2",
+		AccountID:  "acc_2",
 	}
 	got := roundTrip(t, orig)
 	if got.Type != TypeConnect {

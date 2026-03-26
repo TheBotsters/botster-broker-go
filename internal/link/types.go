@@ -34,7 +34,7 @@ type LinkMessage struct {
 	// Identifiers
 	ConnID     string `json:"conn_id,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
-	Role       string `json:"role,omitempty"`       // "brain" or "actuator"
+	Role       string `json:"role,omitempty"` // "brain" or "actuator"
 	AgentID    string `json:"agent_id,omitempty"`
 	AccountID  string `json:"account_id,omitempty"`
 	ActuatorID string `json:"actuator_id,omitempty"`
