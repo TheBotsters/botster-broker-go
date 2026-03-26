@@ -248,14 +248,18 @@ func ExecuteImport(database *db.DB, masterKey string, doc Document, overwriteSec
 				continue
 			}
 		} else {
-			_, err := database.CreateSecret(acc.ID, s.Name, s.Provider, s.Value, masterKey)
+			sec, err := database.CreateSecret(acc.ID, s.Name, s.Provider, s.Value, masterKey)
 			if err != nil {
 				return res, err
 			}
 			for _, grantName := range s.Grants {
 				ag := agentByAccountAndName[acc.ID+"::"+grantName]
-				if ag != nil {
-					// TODO: import capability grants instead of secret_access grants
+				if ag == nil {
+					res.Warnings = append(res.Warnings, fmt.Sprintf("secret %s: grant to unknown agent %q skipped", s.Name, grantName))
+					continue
+				}
+				if err := database.GrantSecretToAgent(sec.ID, ag.ID); err != nil {
+					return res, fmt.Errorf("grant secret %s to agent %s: %w", s.Name, grantName, err)
 				}
 			}
 			res.SecretsCreate++

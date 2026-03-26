@@ -50,3 +50,66 @@ func TestParseJSONL_UnsupportedVersion(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestParseJSONL_EmptyInput(t *testing.T) {
+	_, err := ParseJSONL(strings.NewReader(""))
+	if err == nil {
+		t.Fatal("expected error for empty input")
+	}
+}
+
+func TestParseJSONL_EmptyLines(t *testing.T) {
+	// Empty lines should be skipped; header still required
+	_, err := ParseJSONL(strings.NewReader("\n\n\n"))
+	if err == nil {
+		t.Fatal("expected error — no header")
+	}
+}
+
+func TestParseJSONL_DuplicateHeader(t *testing.T) {
+	input := strings.Join([]string{
+		`{"_type":"header","version":"0.1.0","exported_at":"2026-03-09T00:00:00Z"}`,
+		`{"_type":"header","version":"0.1.0","exported_at":"2026-03-09T00:00:01Z"}`,
+		`{"_type":"account","email":"a@example.com"}`,
+	}, "\n")
+	doc, err := ParseJSONL(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(doc.Warnings) == 0 {
+		t.Fatal("expected warning for duplicate header")
+	}
+	if len(doc.Accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(doc.Accounts))
+	}
+}
+
+func TestParseJSONL_OutOfOrder(t *testing.T) {
+	// Agents before accounts — parser should still collect both
+	input := strings.Join([]string{
+		`{"_type":"header","version":"0.1.0","exported_at":"2026-03-09T00:00:00Z"}`,
+		`{"_type":"agent","name":"agent1","account_email":"a@example.com"}`,
+		`{"_type":"account","email":"a@example.com"}`,
+	}, "\n")
+	doc, err := ParseJSONL(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(doc.Agents) != 1 || len(doc.Accounts) != 1 {
+		t.Fatalf("expected 1 agent + 1 account, got agents=%d accounts=%d", len(doc.Agents), len(doc.Accounts))
+	}
+}
+
+func TestParseJSONL_UnknownFieldsIgnored(t *testing.T) {
+	input := strings.Join([]string{
+		`{"_type":"header","version":"0.1.0","exported_at":"2026-03-09T00:00:00Z","future_field":"x"}`,
+		`{"_type":"account","email":"a@example.com","unknown_field":42}`,
+	}, "\n")
+	doc, err := ParseJSONL(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(doc.Accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(doc.Accounts))
+	}
+}

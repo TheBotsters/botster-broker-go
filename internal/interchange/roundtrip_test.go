@@ -105,3 +105,69 @@ func TestRoundTripExportImportExport(t *testing.T) {
 		}
 	}
 }
+
+func TestRoundTripWithSecretGrants(t *testing.T) {
+	src := testDBRT(t)
+	dst := testDBRT(t)
+
+	acc, err := src.CreateAccount("grants@example.com", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, _, err := src.CreateAgent(acc.ID, "grant-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec, err := src.CreateSecret(acc.ID, "GRANTED_KEY", "openai", "sk-grant-test", rtMasterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src.GrantSecretToAgent(sec.ID, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Export from src
+	var exportA bytes.Buffer
+	if err := WriteExportJSONL(&exportA, src, rtMasterKey, "src", time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+
+	// Verify grant is in export
+	if !strings.Contains(exportA.String(), `"grant-agent"`) {
+		t.Fatalf("export missing grant: %s", exportA.String())
+	}
+
+	// Import into dst
+	doc, err := ParseJSONL(bytes.NewReader(exportA.Bytes()))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	res, err := ExecuteImport(dst, rtMasterKey, doc, false)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if len(res.Warnings) > 0 {
+		t.Fatalf("unexpected warnings: %v", res.Warnings)
+	}
+
+	// Verify grant survived in dst
+	var exportB bytes.Buffer
+	if err := WriteExportJSONL(&exportB, dst, rtMasterKey, "dst", time.Date(2026, 3, 26, 1, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("export B: %v", err)
+	}
+	if !strings.Contains(exportB.String(), `"grant-agent"`) {
+		t.Fatalf("grant not preserved in dst export: %s", exportB.String())
+	}
+
+	// Full normalized diff
+	normA := normalizeExportJSONL(t, exportA.String())
+	normB := normalizeExportJSONL(t, exportB.String())
+	if len(normA) != len(normB) {
+		t.Fatalf("line count mismatch: %d vs %d\nA=%v\nB=%v", len(normA), len(normB), normA, normB)
+	}
+	for i := range normA {
+		if normA[i] != normB[i] {
+			t.Fatalf("diff at line %d\nA=%s\nB=%s", i, normA[i], normB[i])
+		}
+	}
+}
