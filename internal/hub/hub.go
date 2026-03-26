@@ -68,9 +68,15 @@ type Connection struct {
 	ActuatorID   string // for actuators: actuator ID; for brains: ""
 	AccountID    string
 	RecoveryOnly bool
-	ws           *websocket.Conn
-	sendCh       chan []byte
-	hub          *Hub
+
+	// Direct WebSocket mode (legacy single-process).
+	ws     *websocket.Conn
+	sendCh chan []byte
+	hub    *Hub
+
+	// Link mode (ws-proxy split). When linkClient is non-nil,
+	// messages are sent through the Unix socket link instead of ws.
+	linkClient *LinkClient
 }
 
 // Hub is the supervisor that manages all WebSocket connections.
@@ -197,11 +203,16 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 		} else {
 			// Async mode: send result back to the brain.
 			h.mu.RLock()
-			if brain, ok := h.brains[cmd.agentID]; ok {
-				data, _ := json.Marshal(result)
-				brain.sendCh <- data
-			}
+			brain, ok := h.brains[cmd.agentID]
 			h.mu.RUnlock()
+			if ok {
+				if brain.linkClient != nil {
+					_ = brain.linkClient.SendToAgent(cmd.agentID, *result)
+				} else {
+					data, _ := json.Marshal(result)
+					brain.sendCh <- data
+				}
+			}
 		}
 		return
 	}
@@ -269,9 +280,13 @@ func (h *Hub) handleCommand(cmd commandRequest) {
 	h.origins[cmd.msg.ID] = cmd.agentID
 	h.originMu.Unlock()
 
-	// Send to actuator
-	data, _ := json.Marshal(cmd.msg)
-	conn.sendCh <- data
+	// Send to actuator — via link or direct WS depending on mode.
+	if conn.linkClient != nil {
+		_ = conn.linkClient.SendToActuator(conn.ActuatorID, cmd.msg)
+	} else {
+		data, _ := json.Marshal(cmd.msg)
+		conn.sendCh <- data
+	}
 	log.Printf("[hub] Command %s routed to actuator %s (origin agent: %s)", cmd.msg.ID, actuator.Name, cmd.agentID)
 }
 
@@ -450,8 +465,12 @@ func (c *Connection) readPump(ctx context.Context) {
 				c.hub.mu.RLock()
 				if hasOrigin {
 					if brain, exists := c.hub.brains[agentID]; exists {
-						data, _ := json.Marshal(msg)
-						brain.sendCh <- data
+						if brain.linkClient != nil {
+							_ = brain.linkClient.SendToAgent(agentID, msg)
+						} else {
+							data, _ := json.Marshal(msg)
+							brain.sendCh <- data
+						}
 					} else {
 						log.Printf("[hub] Command %s result: origin brain %s not connected", msg.ID, agentID)
 					}
@@ -459,8 +478,12 @@ func (c *Connection) readPump(ctx context.Context) {
 					// No origin tracked — broadcast as fallback (shouldn't happen)
 					log.Printf("[hub] Command %s result: no origin tracked, broadcasting", msg.ID)
 					for _, brain := range c.hub.brains {
-						data, _ := json.Marshal(msg)
-						brain.sendCh <- data
+						if brain.linkClient != nil {
+							_ = brain.linkClient.SendToAgent(brain.AgentID, msg)
+						} else {
+							data, _ := json.Marshal(msg)
+							brain.sendCh <- data
+						}
 					}
 				}
 				c.hub.mu.RUnlock()
@@ -610,6 +633,14 @@ func (h *Hub) NotifyAgentTokenRotated(agentID, newToken string) {
 		return
 	}
 	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken, RotationID: agent.PendingRotationID.String}
+	if conn.linkClient != nil {
+		if err := conn.linkClient.SendToAgent(agentID, msg); err != nil {
+			log.Printf("[botster-broker-hub] token_rotated send via link failed for agent=%s: %v", agentID, err)
+		} else {
+			log.Printf("[botster-broker-hub] Sent token_rotated to brain agent=%s (via link)", agentID)
+		}
+		return
+	}
 	data, _ := json.Marshal(msg)
 	select {
 	case conn.sendCh <- data:
@@ -634,6 +665,14 @@ func (h *Hub) NotifyActuatorTokenRotated(actuatorID, newToken string) {
 		return
 	}
 	msg := WSMessage{Type: TypeTokenRotated, NewToken: newToken, RotationID: actuator.PendingRotationID.String}
+	if conn.linkClient != nil {
+		if err := conn.linkClient.SendToActuator(actuatorID, msg); err != nil {
+			log.Printf("[botster-broker-hub] token_rotated send via link failed for actuator=%s: %v", actuatorID, err)
+		} else {
+			log.Printf("[botster-broker-hub] Sent token_rotated to actuator=%s (via link)", actuatorID)
+		}
+		return
+	}
 	data, _ := json.Marshal(msg)
 	select {
 	case conn.sendCh <- data:
@@ -645,8 +684,68 @@ func (h *Hub) NotifyActuatorTokenRotated(actuatorID, newToken string) {
 
 // SendCh returns the connection's send channel for direct message delivery.
 // Used by external callers (e.g., notify handler) to push messages.
+// Returns nil for link-mode connections (use SendToAgent/SendToActuator instead).
 func (c *Connection) SendCh() chan []byte {
+	if c.linkClient != nil {
+		return nil
+	}
 	return c.sendCh
+}
+
+// SendToAgent sends a WSMessage to a brain by agent ID, using whatever
+// transport the connection is on (link or direct WS).
+func (h *Hub) SendToAgent(agentID string, msg WSMessage) bool {
+	h.mu.RLock()
+	conn, ok := h.brains[agentID]
+	h.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	if conn.linkClient != nil {
+		return conn.linkClient.SendToAgent(agentID, msg) == nil
+	}
+	data, _ := json.Marshal(msg)
+	select {
+	case conn.sendCh <- data:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsBrainConnected returns whether a brain is connected for the given agent.
+func (h *Hub) IsBrainConnected(agentID string) bool {
+	h.mu.RLock()
+	_, ok := h.brains[agentID]
+	h.mu.RUnlock()
+	return ok
+}
+
+// DeliverBufferedWakesViaLink sends buffered wake messages through the link.
+func (h *Hub) DeliverBufferedWakesViaLink(agentID string) {
+	h.mu.Lock()
+	msgs, ok := h.wakeBuffers[agentID]
+	if ok {
+		delete(h.wakeBuffers, agentID)
+	}
+	h.mu.Unlock()
+
+	if !ok || len(msgs) == 0 {
+		return
+	}
+
+	h.mu.RLock()
+	conn, connOk := h.brains[agentID]
+	h.mu.RUnlock()
+
+	if !connOk || conn.linkClient == nil {
+		return
+	}
+
+	for _, msg := range msgs {
+		_ = conn.linkClient.SendToAgent(agentID, msg)
+	}
+	log.Printf("[hub] Delivered %d buffered wake(s) to brain agent %s (via link)", len(msgs), agentID)
 }
 
 // RequireBrokerToken validates a broker token via Authorization: Bearer,

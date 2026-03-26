@@ -1,0 +1,30 @@
+[Unit]
+Description=Botster Broker — Business Logic (two-process mode)
+Documentation=https://github.com/TheBotsters/botster-broker-go
+After=network.target ws-proxy.service
+Requires=ws-proxy.service
+
+[Service]
+Type=simple
+User=siofra_actuator
+WorkingDirectory=/home/siofra_actuator/dev/botster-broker-go
+ExecStart=/home/siofra_actuator/dev/botster-broker-go/botster-broker
+Restart=on-failure
+RestartSec=2
+
+# Two-process mode: connect to ws-proxy via Unix socket.
+# The proxy holds WebSocket connections; we can restart freely.
+Environment=PROXY_SOCKET=/run/botster-broker/hub.sock
+
+# Secrets via environment
+# EnvironmentFile=/etc/botster-broker/env
+Environment=BROKER_MASTER_KEY=changeme
+Environment=BROKER_PORT=8080
+Environment=BROKER_DB_PATH=/home/siofra_actuator/dev/botster-broker-go/broker.db
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=botster-broker
+
+[Install]
+WantedBy=multi-user.target

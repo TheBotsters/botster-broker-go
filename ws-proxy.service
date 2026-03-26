@@ -1,0 +1,29 @@
+[Unit]
+Description=Botster WebSocket Proxy (long-lived WS frontend)
+Documentation=https://github.com/TheBotsters/botster-broker-go
+After=network.target
+Before=botster-broker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ws-proxy \
+  -socket /run/botster-broker/hub.sock \
+  -listen :9084 \
+  -auth-timeout 5s \
+  -buffer-size 1000
+Restart=on-failure
+RestartSec=2
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/botster-broker
+PrivateTmp=yes
+
+# Socket directory
+RuntimeDirectory=botster-broker
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target
