@@ -49,20 +49,13 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		Text: body.Text,
 	}
 
-	// Try to deliver to connected brain directly
-	conn := s.Hub.GetBrainConnection(agent.ID)
-	if conn != nil {
-		data, _ := json.Marshal(wakeMsg)
-		// Non-blocking send attempt — if sendCh is full, fall through to buffer
-		select {
-		case conn.SendCh() <- data:
-			accID := agent.AccountID
-			s.DB.LogAudit(&accID, &agent.ID, nil, "notify.sent", body.Source)
-			jsonResponse(w, 200, map[string]interface{}{"ok": true, "delivered": true})
-			return
-		default:
-			// Channel full — fall through to buffer
-		}
+	// Try to deliver to connected brain directly.
+	// SendToAgent works in both link mode and direct WS mode.
+	if s.Hub.SendToAgent(agent.ID, wakeMsg) {
+		accID := agent.AccountID
+		s.DB.LogAudit(&accID, &agent.ID, nil, "notify.sent", body.Source)
+		jsonResponse(w, 200, map[string]interface{}{"ok": true, "delivered": true})
+		return
 	}
 
 	// Buffer for later delivery

@@ -59,6 +59,15 @@ func main() {
 	go wsHub.Run()
 	log.Println("WebSocket hub started")
 
+	// If PROXY_SOCKET is set, connect to ws-proxy via Unix socket link
+	// instead of handling WebSocket connections directly (two-process mode).
+	proxySocket := os.Getenv("PROXY_SOCKET")
+	if proxySocket != "" {
+		linkClient := hub.NewLinkClient(wsHub)
+		go linkClient.ConnectWithRetry(proxySocket)
+		log.Printf("Link mode: connecting to ws-proxy at %s", proxySocket)
+	}
+
 	// Create inference tap (pub/sub for dashboard SSE)
 	inferenceTap := tap.New()
 	log.Println("Inference tap initialized")
